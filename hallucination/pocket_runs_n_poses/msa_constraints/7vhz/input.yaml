@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "FEEIDGVDLCFFGMHVQEYGSDC"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "PPNQRRVYISYLDSVHFFRPKCLRTAVYHEILIGYLEYVKKLGYTTGHIWACPPSEGDDYIFHCHPPDQKIPKPKRLQEWFKKMLDKAVS"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "PLIPCDLMDGRDAFLTLARD"
+        
+    
+    
+        
+    - ligand:
+        ccd: "6TI"
+        id: D
+    
+        
+    version: 1
+    

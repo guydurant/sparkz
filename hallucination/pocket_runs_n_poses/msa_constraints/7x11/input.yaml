@@ -1,0 +1,49 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "IKAIVVTDGERILGLGDLGC"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "MNCLIQFEDFANVNAFRLLNKYRNQYCTFNDDIQGTASVAVAGLLAA"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "LSDQTILFQGAGEAALGIAHLIVMALEKEGLPK"
+        
+    
+    
+
+    - protein:
+        id: D
+        sequence: "GLIVKGRASLTQEKEKFAHEHEEMKN"
+        
+    
+    
+
+    - protein:
+        id: E
+        sequence: "LGVVACGLRQITDNIFLTTAEVIAQQ"
+        
+    
+    
+        
+    - ligand:
+        ccd: "NDP"
+        id: F
+    
+    - ligand:
+        ccd: "86I"
+        id: G
+    
+        
+    version: 1
+    

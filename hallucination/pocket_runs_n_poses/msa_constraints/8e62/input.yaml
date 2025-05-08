@@ -1,0 +1,35 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "IGPNCIIGYPPEDKAVFPQTPYTVHI"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "GTKITGNVTIDAGTIKNTYIGNDCFLMKGAYVAHDVVIGNNVTLSSHVMLGGHVEVMEGANLGMGCIIHQRQKIWHYCMIGMGAIVTKKLVIEPFSI"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "IKNTYIGNDCFLMKGAYVAHDVVIGNNVTLSSHVMLGGHVEVMEGANLGMGCIIHQRQKIWHYCMIGMGAIVTKKLVIEPFSIYVGNPAKKIGTNDKGIEKSGIDERAMA"
+        
+    
+    
+        
+    - ligand:
+        ccd: "COA"
+        id: D
+    
+    - ligand:
+        ccd: "MJZ"
+        id: E
+    
+        
+    version: 1
+    

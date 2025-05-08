@@ -1,0 +1,4 @@
+rdkit
+torchvision==0.21.0
+boltz@ git+https://github.com/guydurant/boltz.git
+pdbfixer@ git+https://github.com/openmm/pdbfixer.git

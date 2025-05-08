@@ -1,0 +1,24 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "EVETFAFQAEIAQLISLIINTFYSNKEIFLRWDISIRSVALDIIRYESLTDPSKLDSGKELHINLIPNKQDRTLTIVATGDFFTKADLINNIGTIAKSGTKA"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "MEALQAGADISVIGQAGVGFYSAFLVAEKGTGINKHNDDEQYAAESSAGGSFTVRTDTGEPMGRGGKGILHLKEDQTEY"
+        
+    
+    
+        
+    - ligand:
+        ccd: "OJ3"
+        id: C
+    
+        
+    version: 1
+    

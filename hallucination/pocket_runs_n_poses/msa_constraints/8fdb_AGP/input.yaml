@@ -1,0 +1,60 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "TTNTIMEQEARTAPQ"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "REFKPKFVMIVGPICPDHAGVFAKYLF"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "TLKLAGGLVIVASINCRSPDILAQARMAKNAGAFCVALVNDETAPIKDIVDVVIPLRAGEEKAIIKTKSYLATLSALLQVAA"
+        
+    
+    
+
+    - protein:
+        id: D
+        sequence: "GRGFGYAVSKEIAGCLKRVCAIHAEAFS"
+        
+    
+    
+
+    - protein:
+        id: E
+        sequence: "IAPLALLQRFYIDVAAVAIALGINPDKPAGLKPVHQTL"
+        
+    
+    
+
+    - protein:
+        id: F
+        sequence: "CAIHAEAFSSAEFLIGPVTLVEKKLS"
+        
+        modifications:
+            - position: 23
+              ccd: "KCX"
+    
+    
+    
+        
+    - ligand:
+        ccd: "MG"
+        id: G
+    
+    - ligand:
+        ccd: "AGP"
+        id: H
+    
+        
+    version: 1
+    

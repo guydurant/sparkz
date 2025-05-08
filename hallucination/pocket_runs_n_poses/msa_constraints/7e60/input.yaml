@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "IFPPKTIQERIAKELKEANAIYSSYTPKALF"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "FNIPLNSFITSDFGKARTFNEKVASYHSGTDFRAATGTPIYAANSGVVKIAKDRYFAGNSVVIDHGFGIYSQYYHLSKIDVKVG"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "KGELIGLSGASGRVSGPALHFGILAGGKQVDPLDFVSK"
+        
+    
+    
+        
+    - ligand:
+        ccd: "HX9"
+        id: D
+    
+        
+    version: 1
+    

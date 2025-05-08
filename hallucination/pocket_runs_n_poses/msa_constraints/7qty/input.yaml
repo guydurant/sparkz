@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "KETDAEMVFIGGGAGMAPMRSH"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "LHSTRKISFWYGARSLREMFYDEEFEQ"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "RDNPNFTFHVALSDPLPEDNWTGHTGFIHNVLYENYLRDHPAPEDCEFYMCGPPVMNAAVIKMLKDLGV"
+        
+    
+    
+        
+    - ligand:
+        ccd: "F0R"
+        id: D
+    
+        
+    version: 1
+    

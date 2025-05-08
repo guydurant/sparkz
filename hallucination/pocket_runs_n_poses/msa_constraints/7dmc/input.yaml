@@ -1,0 +1,33 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "EVETFAFQAEIAQLMSLIINTFYSNKEIFLRELISNSSDALDKIRYESLTDP"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "IPNKQDRTLTIVDTGIGMTKADLINNLGTIAKSGTKAFMEALQAGADISMIGQFGVGFYSAYLVAEKVTVITKHNDDEQYAWESSAGGSFTVRTDTGEPMGRGTKVILHLKEDQTEY"
+        
+    
+    
+        
+    - ligand:
+        ccd: "CL"
+        id: C
+    
+
+    - ligand:
+        ccd: "MG"
+        id: D
+    
+    - ligand:
+        ccd: "H9F"
+        id: E
+    
+        
+    version: 1
+    

@@ -1,0 +1,35 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "EFPRDKLTLGQPVAYPAVGQIVMAEAVGIDKDKPKEAVTVVVAMLKDDATEKDLSDLVSEMEMMKMIGKHKNIQNLLGACTQDGPLYVIGPPFLLHGLRRYLRARRPPG"
+        
+        modifications:
+            - position: 87
+              ccd: "PTR"
+    
+    
+    
+
+    - protein:
+        id: B
+        sequence: "SQKCIHRDLAARMVTVTENNVMKILKFGLARDI"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "YKKTTAGRLPVKWMA"
+        
+    
+    
+        
+    - ligand:
+        ccd: "U9P"
+        id: D
+    
+        
+    version: 1
+    

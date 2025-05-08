@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "ENIYKIDFVRHKERDMDSGTVLFEIKKP"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "LDPNAGRFVRHQDTPAVCRLRQIGLTVEFTVGDKPVNNFRMIVRCYFRNQLVWSWDFHFGFCIPSSKNTCEHILDFEPYSEELISEKIRHPYEEQSDSFYFVDDRLVMHNKADLSNSGT"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "FVRFKIRDMDSGTVLFEIKKP"
+        
+    
+    
+        
+    - ligand:
+        ccd: "NT6"
+        id: D
+    
+        
+    version: 1
+    

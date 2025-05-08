@@ -1,0 +1,3 @@
+rdkit
+boltz
+pdbfixer@ git+https://github.com/openmm/pdbfixer.git

@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: spark1
+Version: 0.1
+Requires-Dist: rdkit
+Requires-Dist: boltz
+Requires-Dist: pdbfixer@ git+https://github.com/openmm/pdbfixer.git

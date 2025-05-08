@@ -1,0 +1,24 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "GLYRAVLLEASARISQLETFVSLNERPGSPQDKLRAAITVLVERLHNHPDGWALKVLTREVLSPSPEFEVVLKEQMFPISHIMRGLLGQIMNLPADHPTTLRSTISVTAPCLFLLIAHQPL"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "SAISVFAPCLFLLIAHQPCKQHICQGLSLEPQGLID"
+        
+    
+    
+        
+    - ligand:
+        ccd: "ZHG"
+        id: C
+    
+        
+    version: 1
+    

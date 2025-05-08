@@ -1,0 +1,33 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "EPIVGAETFYVDFDANRETKLGKAGYVTNRGRQKVVTLTDTTLQKTALQAIYLALQDSGLEVNIVTTGQYALGIITQWIH"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "LIKKEKVYLAWVPAHKGIGGNEQVGKLVDAGIEKV"
+        
+    
+    
+        
+    - ligand:
+        ccd: "MN"
+        id: C
+    
+
+    - ligand:
+        ccd: "MN"
+        id: D
+    
+    - ligand:
+        ccd: "EGI"
+        id: E
+    
+        
+    version: 1
+    

@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "DIIEKRYNEEHKMTYTVYQHKK"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "SDLSLENPTDPFVLEIIDYLLAWTPESVLYKALTDCGLGNNVIGIGMNDSLVQYIFSIGLKGIKRN"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "EGFNKSAVEASINNHEFSYKEVNLKTSKSIAFVFCMTSKLNYNRDPLLCFEFEKYLNIVKN"
+        
+    
+    
+        
+    - ligand:
+        ccd: "7TU"
+        id: D
+    
+        
+    version: 1
+    

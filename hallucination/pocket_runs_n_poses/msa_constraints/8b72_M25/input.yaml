@@ -1,0 +1,52 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "INPDLWFFACHVEGDPVFPGCLGLDAMWQLVGF"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "GRALGSGEVKNFGQVLPTAKKVT"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "GTVSVDGREIYSAEGLRVGL"
+        
+    
+    
+
+    - protein:
+        id: D
+        sequence: "HAFTREDLLRCSRGELFGPGNVSTPAPNMLMIDRIVHISDV"
+        
+    
+    
+
+    - protein:
+        id: E
+        sequence: "HFEGDPVMPGCLGLRAMHQLVGVYLGWQGNPGRAMPLGSGEVKFFGQ"
+        
+    
+    
+
+    - protein:
+        id: F
+        sequence: "GREIYSAEGLRCGTFTSTDSF"
+        
+    
+    
+        
+    - ligand:
+        ccd: "M25"
+        id: G
+    
+        
+    version: 1
+    

@@ -1,0 +1,45 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "SVKKNYRRVPYHNWKHAVTVAHCMY"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "LCHDLDHRGFSNSYLQKFDH"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "LEIIRKAIIATDLALYNGNRKQLEEM"
+        
+    
+    
+
+    - protein:
+        id: D
+        sequence: "HRDRVIGLMMTACDFCPTTKLWPVTKLTANDVYAEFWAEGDEMKKLGIQPIPQMDRDKKDEVPQWELGFYNENAIPCYTTLTQ"
+        
+    
+    
+
+    - protein:
+        id: E
+        sequence: "LKACRDNLSQWEKVIRGEE"
+        
+    
+    
+        
+    - ligand:
+        ccd: "JIP"
+        id: F
+    
+        
+    version: 1
+    

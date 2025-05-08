@@ -1,0 +1,31 @@
+
+    sequences:
+        
+    - protein:
+        id: A
+        sequence: "MRRRPIRVLSLQDFIATGYLVLKELGIKVGKYVAEQTVEEAIAVGTVKHEGNIKYVIQLLNITKKNIEEWGPFDLVIGGSPCNDLSNVNPARKGLYEGTGRYFFEFYHLLNYSR"
+        
+    
+    
+
+    - protein:
+        id: B
+        sequence: "AKLKKVQTITTKS"
+        
+    
+    
+
+    - protein:
+        id: C
+        sequence: "VSNMGRGARQKLLGDSWSVPVIRHL"
+        
+    
+    
+        
+    - ligand:
+        ccd: "HRM"
+        id: D
+    
+        
+    version: 1
+    

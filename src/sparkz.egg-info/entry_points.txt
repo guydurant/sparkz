@@ -1,3 +1,0 @@
-[console_scripts]
-screwz = inpainting.main:main
-sparkz = cli:main

@@ -1,6 +1,6 @@
 import pandas as pd
 import torch
-from boltz.main import BoltzDiffusionParams, BoltzSteeringParams
+from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download
 from pathlib import Path
 from dataclasses import asdict
 import click
@@ -16,7 +16,12 @@ from utils.writer import write_complex
 from utils.batch_generate import make_batch_from_sequence
 import time
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:   
+    device = torch.device("cpu")
 
 predict_args = {
     "recycling_steps": 3,
@@ -92,7 +97,12 @@ def infer(
         use_constraints=use_constraints,
         cache_dir=cache_dir,
     )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:   
+        device = torch.device("cpu")
     if fixed_atom_positions is not None and fixed_indices is not None:
         batch["ref_pos"][..., fixed_with_ligands_indices, :] = torch.tensor(
             fixed_atom_positions,
@@ -166,17 +176,26 @@ def infer(
     "--use_constraints", type=bool, help="Use constraints for docking", default=False
 )
 @click.option("--overwrite", type=bool, help="Overwrite existing files", default=False)
-@click.option("--cache", type=str, help="Cache directory", default="/homes/durant/")
+@click.option("--cache", type=str, help="Cache directory", default="cache")
 def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_rate, no_msa, use_constraints, overwrite, cache):
     model_names = {
         "default": Boltz1,
         "inpainting": Screwz1,
     }
-    
-    print("Loading model for mode", mode)
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
+    print("Loading model for mode", mode, "on device", device)
     steering_args = BoltzSteeringParams()
     cache_dir = Path(cache).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
+    download(cache_dir)
+    assert Path.exists(
+        cache_dir / "boltz1_conf.ckpt"
+    ), f"Model checkpoint not found in {cache_dir}"
     _torch_model = model_names[mode].load_from_checkpoint(
         Path(f"{cache_dir}/boltz1_conf.ckpt"),
         strict=True,
@@ -189,7 +208,7 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
     if mode == "inpainting":
         _torch_model.structure_module.set_guidance(guidance_rate, True) 
         mode = f"{mode}_{guidance_rate}"
-    _torch_model = _torch_model.to("cuda" if torch.cuda.is_available() else "cpu")
+    _torch_model = _torch_model.to(device)
     _torch_model.training = False
     _torch_model.structure_prediction_training = False
     torch.set_grad_enabled(True)

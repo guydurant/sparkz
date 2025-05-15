@@ -22,7 +22,12 @@ import random
 # import wandb
 from hallucination.loss import bindcraft_like_loss
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+else:   
+    device = torch.device("cpu")
 
 def infer_with_gradients(model: LightningModule, batch: Any, predict_args: Dict[str, Any], protein_index=None, pocket_residues=None) -> Dict[str, torch.Tensor]:
     """

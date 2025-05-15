@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: sparkz
-Version: 0.1
-Requires-Dist: rdkit
-Requires-Dist: torchvision==0.21.0
-Requires-Dist: boltz@ git+https://github.com/guydurant/boltz.git
-Requires-Dist: pdbfixer@ git+https://github.com/openmm/pdbfixer.git
-Dynamic: requires-dist

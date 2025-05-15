@@ -103,8 +103,6 @@ def center_random_augmentation(
 class GuidedAtomDiffusion(AtomDiffusion):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-        # self.score_model = self.score_model.to(device)
 
     def sample(
         self,

@@ -3,3 +3,5 @@
 /slurm_*
 /test*
 /wandb
+/src/spark*
+*__pycache__*

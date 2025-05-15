@@ -153,7 +153,7 @@ def make_batch_from_sequence(
     """
     LIGAND_TEMPLATE = """
     - ligand:
-        smiles: "{ligand}"
+        smiles: '{ligand}'
         id: {id}
     """
     HETATM_TEMPLATE = """

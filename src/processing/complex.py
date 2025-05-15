@@ -1,7 +1,7 @@
 from rdkit import Chem
 from rdkit.Chem import AllChem, rdMolAlign
 from processing.molecule import Molecule
-from processing.constants import CRYSTALLISATION_AIDS, MODIFIED_RESIDUES
+from processing.constants import CRYSTALLISATION_AIDS, MODIFIED_RESIDUES, DNA_EXCLUSION
 from boltz.data import const
 from pdbfixer import PDBFixer
 from openmm.app import PDBFile
@@ -92,11 +92,15 @@ class Complex:
     def check_residue_for_missing_atoms(self, res, molecule):
         if res[1] in MODIFIED_RESIDUES:
             return None
+        if res[1] in DNA_EXCLUSION:
+            logger.debug("Skipping DNA residue %s", res, 'as DNA not supported')
+            del self.protein_molecules[res]
+            return 'DNA'
         if res[1] not in const.ref_atoms and res not in MODIFIED_RESIDUES:
             logger.debug("Treating residue %s as a heteroatom", res)
             self.heteratoms_molecules[res] = molecule
+            del self.protein_molecules[res]
             return 'heteroatom'
-        
         atom_types = [i.atom_name for i in molecule.atoms.values()]
         missing_atoms = [a for a in const.ref_atoms[res[1]] if a not in atom_types]
         for atom in missing_atoms:
@@ -120,7 +124,8 @@ class Complex:
             molecule = self.protein_molecules[res]
             result = self.check_residue_for_missing_atoms(res, molecule)
             if result == 'heteroatom':
-                del self.protein_molecules[res]
+                continue
+            elif result == 'DNA':
                 continue
             elif result:
                 problematic_res[res] = result
@@ -219,39 +224,6 @@ class Complex:
         if ext not in rdkit_funcs:
             raise ValueError(f"Unsupported ligand format {ext}.")
         return rdkit_funcs[ext](ligand_path)
-
-    # def alanine_mutate_inner_pocket(self, inner_threshold=5, outer_threshold=8):
-    #     redesign_pocket, outer_pocket = self.get_protein_pocket(
-    #         inner_threshold, outer_threshold
-    #     )
-    #     self.redesign_pocket = redesign_pocket
-    #     self.outer_pocket = outer_pocket
-        
-    #     # mutate the inner pocket to alanine
-    #     for key in redesign_pocket:
-    #         print("Mutating residue", key, "to alanine")
-    #         if key in self.protein_molecules:
-    #             res = self.protein_molecules[key]
-    #             if res.resname != "ALA":
-    #                 res.resname = "ALA"
-    #                 res.pdbblock = res.get_new_pdbblock()
-    #                 missing_atoms = self.check_residue_for_missing_atoms(key, res)
-    #                 if missing_atoms:
-    #                     res_lines = res.get_new_pdbblock().split("\n")
-    #                     if len(missing_atoms) > 1:
-    #                         res_lines = self.repair_missing_atoms(res_lines, missing_atoms)
-    #                     else:
-    #                         res_lines = self.repair_missing_atoms(res_lines, missing_atoms)
-    #                     new_pdbblock = "\n".join(res_lines)
-    #                     self.protein_molecules[key] = Molecule(new_pdbblock)
-    #                 else:
-    #                     res_lines = res.get_new_pdbblock()
-    #                     self.protein_molecules[key] = Molecule(res_lines)
-    #             print("Now mutated to", res.resname, "with pdbblock", res.pdbblock)
-    #         else:
-    #             logger.debug(f"Residue {key} not found in protein molecules.")
-    #             continue
-    #     return None
     
     def alanine_mutate_inner_pocket(self, inner_threshold=5, outer_threshold=8):
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
@@ -436,7 +408,7 @@ class Complex:
             if i not in redesigned_pocket_atom_indices
         ]
         constrain_atom_indices_with_ligand = constraint_atom_indices + [
-            len(pocket_coords) + j for j in range(len(self.ligand.GetConformer().GetPositions()))
+            len(pocket_coords) + j for j in range(self.ligand.GetNumHeavyAtoms())
         ]
         # TODO convert coords to 999.999 if in redesigned pocket
         pocket_coords_altered = np.array(
@@ -446,18 +418,16 @@ class Complex:
             ]
         )
         atom_mapping = self.create_atom_mapping()
+        
+        lig_mol_copy = Chem.Mol(self.ligand)
+        lig_mol_copy = Chem.RemoveAllHs(lig_mol_copy)
+        
         reordered_ligand_coords = np.array(
             [
-                self.ligand.GetConformer().GetPositions()[atom_mapping[i]]
-                for i in range(len(self.ligand.GetConformer().GetPositions()))
+                lig_mol_copy.GetConformer().GetPositions()[atom_mapping[i]]
+                for i in range(len(lig_mol_copy.GetConformer().GetPositions()))
             ]
         )
-        # reordered_ligand_coords = np.array(
-        #     [
-        #         self.ligand.GetConformer().GetPositions()[i]
-        #         for i in range(len(self.ligand.GetConformer().GetPositions()))
-        #     ]
-        # )
         combined_coords = np.concatenate(
             [pocket_coords_altered, reordered_ligand_coords], axis=0
         )
@@ -466,7 +436,7 @@ class Complex:
         )
         return {
             "sequence": new_sequence,
-            "smiles": Chem.MolToSmiles(self.ligand),
+            "smiles": Chem.MolToSmiles(lig_mol_copy),
             "pocket_coords": pocket_coords_centred,
             "pocket_constraint_residue_indices": pocket_constraint_residue_indices,
             "whole_pocket_atom_indices": constraint_atom_indices,
@@ -475,104 +445,6 @@ class Complex:
             "other_hetatms": [res[1] for res in hetatm_pocket],
             "modified_residues": pocket_modified_residues,
         }
-    
-    # def create_atom_mapping(self):
-    #     ccd_pkl = pickle.load(open(self.ccd_pkl, "rb"))
-    #     rdkit_mol = Chem.AddHs(ccd_pkl[self.ligand_code])
-    #     ligand_mol = Chem.AddHs(self.ligand)
-        
-    #     print(Chem.MolToPDBBlock(rdkit_mol))
-    #     print(Chem.MolToPDBBlock(ligand_mol))
-
-    #     # Canonical atom rankings ensure matching despite order differences
-    #     rdkit_ranks = Chem.CanonicalRankAtoms(rdkit_mol)
-    #     ligand_ranks = Chem.CanonicalRankAtoms(ligand_mol)
-
-    #     if sorted(rdkit_ranks) != sorted(ligand_ranks):
-    #         raise ValueError("Molecules are not atomically identical")
-
-    #     # Sort atoms by their canonical rank and build the mapping
-    #     sorted_rdkit = sorted(enumerate(rdkit_ranks), key=lambda x: x[1])
-    #     sorted_ligand = sorted(enumerate(ligand_ranks), key=lambda x: x[1])
-    #     atom_mapping = {lig_idx: rdkit_idx for (lig_idx, _), (rdkit_idx, _) in zip(sorted_ligand, sorted_rdkit)}
-    #     print(atom_mapping)
-    #     return atom_mapping
-
-    # def create_atom_mapping(self):
-
-    #     ccd_pkl = pickle.load(open(self.ccd_pkl, "rb"))
-    #     ref_mol = Chem.RemoveHs(ccd_pkl[self.ligand_code])
-    #     query_mol = Chem.RemoveHs(self.ligand)
-
-    #     # if query_mol.GetNumConformers() > 1:
-    #     #     conf = query_mol.GetConformer(0)
-    #     #     query_mol.RemoveAllConformers()
-    #     #     query_mol.AddConformer(conf, assignId=True)
-        
-    #     if ref_mol.GetNumConformers() > 1:
-    #         # Just delete extra conformers (keep the first one)
-    #         conf_ids = list(range(ref_mol.GetNumConformers()))
-    #         for cid in conf_ids[1:]:
-    #             ref_mol.RemoveConformer(cid)
-    #     elif ref_mol.GetNumConformers() == 0:
-    #         raise ValueError("ref_mol has no conformers")
-
-    #     # Kekulize both molecules
-    #     Chem.Kekulize(ref_mol, clearAromaticFlags=True)
-    #     Chem.Kekulize(query_mol, clearAromaticFlags=True)
-
-    #     print(check_rmsd(ref_mol, query_mol)["results"]["rmsd"])
-    #     # match = query_mol.GetSubstructMatch(ref_mol)
-    #     match = ref_mol.GetSubstructMatch(query_mol)
-    #     if not match:
-    #         raise ValueError("Substructure match failed – molecules may differ")
-
-    #     # mapping: query atom index -> ref atom index
-    #     atom_mapping = {q_idx: r_idx for q_idx, r_idx in enumerate(match)}
-    #     return atom_mapping
-
-    # def create_atom_mapping(self):
-    #     """Robustly map atoms between reference and query ligands using MCS."""
-    #     smiles = Chem.MolToSmiles(self.ligand)
-    #     ref_mol = Chem.MolFromSmiles(smiles)
-    #     ref_mol = Chem.AddHs(ref_mol)
-    #     AllChem.EmbedMolecule(
-    #         ref_mol, AllChem.ETKDGv3()
-    #     )
-    #     query_mol = Chem.RemoveHs(self.ligand)
-    #     ref_mol = Chem.RemoveHs(ref_mol)
-    #     print(Chem.MolToSmiles(ref_mol))
-    #     print(Chem.MolToSmiles(query_mol))
-
-    #     # Ensure each molecule has only one conformer
-    #     for mol, name in [(ref_mol, "ref_mol"), (query_mol, "query_mol")]:
-    #         n_conf = mol.GetNumConformers()
-    #         if n_conf > 1:
-    #             for cid in range(n_conf - 1, 0, -1):
-    #                 mol.RemoveConformer(cid)
-    #         elif n_conf == 0:
-    #             raise ValueError(f"{name} has no conformers")
-
-    #     ref_mol = AllChem.AssignBondOrdersFromTemplate(
-    #         query_mol, ref_mol
-    #     )
-    #     # Kekulize
-    #     Chem.Kekulize(ref_mol, clearAromaticFlags=True)
-    #     Chem.Kekulize(query_mol, clearAromaticFlags=True)
-
-    #     # Use MCS for robust atom mapping
-    #     mcs_result = rdFMCS.FindMCS([ref_mol, query_mol])
-    #     mcs_mol = Chem.MolFromSmarts(mcs_result.smartsString)
-
-    #     ref_match = ref_mol.GetSubstructMatch(mcs_mol)
-    #     query_match = query_mol.GetSubstructMatch(mcs_mol)
-
-    #     if not ref_match or not query_match:
-    #         raise ValueError("MCS substructure match failed – molecules may differ too much")
-
-    #     atom_mapping = dict(zip(query_match, ref_match))  # query_idx -> ref_idx
-    #     assert len(atom_mapping) == query_mol.GetNumAtoms(), f"Atom mapping incomplete: {len(atom_mapping)} out of {query_mol.GetNumAtoms()} atoms mapped"
-    #     return atom_mapping
     
     def create_atom_mapping(self):
         """Generate full atom mapping between ref and query using O3A."""
@@ -589,7 +461,7 @@ class Complex:
         _, _, atom_mapping = Chem.rdMolAlign.GetBestAlignmentTransform(
             ref_mol, query_mol
         )
-        if len(atom_mapping) != query_mol.GetNumAtoms():
+        if len(atom_mapping) != query_mol.GetNumAtoms() != len(ref_mol.GetAtoms()):
             raise ValueError(f"Atom mapping incomplete: not all atoms mapped {len(atom_mapping)} / {query_mol.GetNumAtoms()} atoms")
         print(atom_mapping)
         return {i[0]: i[1] for i in atom_mapping}

@@ -193,3 +193,10 @@ CRYSTALLISATION_AIDS = [
     "CD",
     "IOD",
 ]
+
+DNA_EXCLUSION = [
+    "DA",
+    "DC",
+    "DG",
+    "DT",
+]

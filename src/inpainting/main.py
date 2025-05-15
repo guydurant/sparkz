@@ -21,7 +21,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 predict_args = {
     "recycling_steps": 3,
     "sampling_steps": 200,
-    "diffusion_samples": 10,
+    "diffusion_samples": 1,
 }
 
 def process_csv_file(csv_file):
@@ -161,7 +161,7 @@ def infer(
     help="Guidance rate for the guided mode. Normally run as 1.0 so it is effectively inpainting",
     default=1.0,
 )
-@click.option("--no_msa", type=bool, help="Disable MSA", default=False)
+@click.option("--no_msa", type=bool, help="Disable MSA, so run in single-sequence mode", default=True)
 @click.option(
     "--use_constraints", type=bool, help="Use constraints for docking", default=False
 )
@@ -220,7 +220,7 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
         processed_pdb["whole_pocket_and_ligand_atom_indices"],
         processed_pdb["other_hetatms"],
         processed_pdb["modified_residues"],
-        ligand_info=ccd,
+        ligand_info=processed_pdb["smiles"],
         out_dir=f"{out_dir}/{pid}",
         cache_dir=cache_dir,
         msa_dir=None,

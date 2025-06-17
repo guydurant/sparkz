@@ -195,6 +195,7 @@ class Screwz1(Boltz1):
                     atom_coords_true=feats["ref_pos"],
                     atom_coords_true_mask_no_ligands=feats["inpainting_mask"],
                     atom_coords_true_mask_with_ligands=feats["inpainting_mask_with_ligands"],
+                    ligand_mask=feats["ligand_atom_mask"],
                 )
             )
 

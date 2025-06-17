@@ -52,19 +52,22 @@ def infer(
     interacting_residues,
     fixed_atom_positions,
     fixed_indices,
+    fixed_ligands_indices,
     fixed_with_ligands_indices,
     other_hetatms,
     modified_residues,
+    side_chain_atom_mask_indices,
     ligand_info=None,
     out_dir=None,
     msa_dir=None,
     no_msa=False,
     use_constraints=False,
+    docking_sphere_centre=None,
     cache_dir=None,
     predict_args={
         "recycling_steps": 3,
         "sampling_steps": 200,
-        "diffusion_samples": 10,
+        "diffusion_samples": 1,
     }
 ):
     """
@@ -97,12 +100,26 @@ def infer(
         use_constraints=use_constraints,
         cache_dir=cache_dir,
     )
+    
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:   
         device = torch.device("cpu")
+    # print("REF POS SHAPE", batch["ref_pos"].shape)
+    # print("ATOM PAD MASK SUM", batch["atom_pad_mask"].sum())
+    side_chain_atom_mask = torch.zeros(
+        batch["ref_pos"].shape[:2], dtype=torch.long, device=batch["ref_pos"].device
+    )
+    print(batch["ref_pos"].shape, "REF POS SHAPE")
+    side_chain_atom_mask[:, side_chain_atom_mask_indices] = 1
+    batch["sidechain_atom_mask"] = side_chain_atom_mask
+    # batch["docking_sphere_centre"] = docking_sphere_centre
+    batch["ligand_atom_mask"] = torch.zeros(
+        batch["ref_pos"].shape[:2], dtype=torch.bool, device=batch["ref_pos"].device
+    )
+    batch["ligand_atom_mask"][:, fixed_ligands_indices] = True
     if fixed_atom_positions is not None and fixed_indices is not None:
         batch["ref_pos"][..., fixed_with_ligands_indices, :] = torch.tensor(
             fixed_atom_positions,
@@ -123,6 +140,30 @@ def infer(
         batch["inpainting_mask_with_ligands"] = inpainting_mask_with_ligands.unsqueeze(
             -1
         )
+        # if docking_sphere_centre is not None:
+        #     print("Doing things I shouldn't be doing")
+        #     print("Setting docking sphere centre to", docking_sphere_centre)
+        #     batch["ref_pos"][:, -1] = torch.tensor(
+        #         docking_sphere_centre,
+        #         dtype=batch["ref_pos"].dtype,
+        #         device=batch["ref_pos"].device,
+        #     )
+        #     # batch["docking_sphere_centre_index"] = max(fixed_with_ligands_indices) + 1
+        #     # batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1] = 0
+        #     # batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1] = torch.tensor(
+        #     #     0,
+        #     #     dtype=batch["atom_pad_mask"].dtype,
+        #     #     device=batch["atom_pad_mask"].device,
+        #     # )
+        #     # print(batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1])
+        #     # print(batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1].dtype)
+        #     # print(batch["atom_pad_mask"][: , -30:])
+        #     # batch["token_resolved_mask"][:, -1] = 0
+        #     # batch["token_disto_mask"][:, -1] = 0
+        #     # batch["token_pad_mask"][:,-1] = 0
+        #     # batch["inpainting_mask"][:, max(fixed_with_ligands_indices)+1] = 1
+        #     batch["inpainting_mask_with_ligands"][:, -1] = 1
+    
     with torch.no_grad():
         out = model(
             {
@@ -189,7 +230,11 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
     else:
         device = torch.device("cpu")
     print("Loading model for mode", mode, "on device", device)
-    steering_args = BoltzSteeringParams()
+    steering_args = BoltzSteeringParams(
+            # fk_steering=False,
+            # guidance_update=False,
+    )
+        
     cache_dir = Path(cache).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
     download(cache_dir)
@@ -230,21 +275,25 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
     with open(f"{out_dir}/{pid}/pdbblock_ref.pdb", "w") as f:
         f.write(processed_pdb["pdbblock_ref"])
     _torch_model.eval()
+    print(len(processed_pdb["ligand_atom_indices"]), len(processed_pdb["whole_pocket_atom_indices"]))
     predictions, batch = infer(
         _torch_model,
         processed_pdb["sequence"],
         processed_pdb["pocket_constraint_residue_indices"],
         processed_pdb["pocket_coords"],
         processed_pdb["whole_pocket_atom_indices"],
+        processed_pdb["ligand_atom_indices"],
         processed_pdb["whole_pocket_and_ligand_atom_indices"],
         processed_pdb["other_hetatms"],
         processed_pdb["modified_residues"],
+        processed_pdb["sidechain_atom_mask"],
         ligand_info=processed_pdb["smiles"],
         out_dir=f"{out_dir}/{pid}",
         cache_dir=cache_dir,
         msa_dir=None,
         no_msa=no_msa,
         use_constraints=use_constraints,
+        docking_sphere_centre=None, #processed_pdb["docking_sphere_centre"],
     )
     time_taken = time.time() - starttime
     predictions["time_taken"] = time_taken

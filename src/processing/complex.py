@@ -1,5 +1,5 @@
 from rdkit import Chem
-from rdkit.Chem import AllChem, rdMolAlign
+from rdkit.Chem import AllChem, rdMolAlign, rdDetermineBonds
 from processing.molecule import Molecule
 from processing.constants import CRYSTALLISATION_AIDS, MODIFIED_RESIDUES, DNA_EXCLUSION
 from boltz.data import const
@@ -17,9 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 class Complex:
-    def __init__(self, pdb_path, ligand, ligand_code, ccd_pkl="/homes/durant/ccd.pkl"):
+    def __init__(self, pdb_path, ligand, ligand_code, replace_modified_res=True, ccd_pkl="/homes/durant/ccd.pkl"):
         self.protein_molecules = {}
         self.heteratoms_molecules = {}
+        self.replace_modified_res = replace_modified_res
         self.read_pdbblock(pdb_path)
         self.filter_heteratoms()
         self.clean_protein()
@@ -91,7 +92,16 @@ class Complex:
 
     def check_residue_for_missing_atoms(self, res, molecule):
         if res[1] in MODIFIED_RESIDUES:
-            return None
+            if not self.replace_modified_res:
+                logger.debug("Keeping modified residue %s", res, '. Note it is buggy')
+                return None
+            else:
+                logger.debug("Replacing modified residue %s with %s", res, MODIFIED_RESIDUES[res[1]])
+                atom_types = [i.atom_name for i in molecule.atoms.values()]
+                missing_atoms = [a for a in const.ref_atoms[MODIFIED_RESIDUES[res[1]]] if a not in atom_types]
+                for atom in missing_atoms:
+                    logger.debug("Missing atom %s in modified residue %s", atom, res)
+                return missing_atoms if missing_atoms else None
         if res[1] in DNA_EXCLUSION:
             logger.debug("Skipping DNA residue %s", res, 'as DNA not supported')
             del self.protein_molecules[res]
@@ -109,11 +119,21 @@ class Complex:
 
 
     def clean_additional_atoms_in_residue(self, res, molecule):
+        key = res[1]
         if res[1] in MODIFIED_RESIDUES:
-            return
+            if not self.replace_modified_res:
+                return
+            else:
+                atom_types = [i.atom_name for i in molecule.atoms.values()]
+                for atom in atom_types:
+                    if atom not in const.ref_atoms[MODIFIED_RESIDUES[res[1]]]:
+                        logger.debug("Additional atom %s in modified residue %s", atom, res)
+                        molecule.remove_atom(atom)
+                key = MODIFIED_RESIDUES[res[1]]
+        
         atom_types = [i.atom_name for i in molecule.atoms.values()]
         for atom in atom_types:
-            if atom not in const.ref_atoms[res[1]]:
+            if atom not in const.ref_atoms[key]:
                 logger.debug("Additional atom %s in residue %s", atom, res)
                 molecule.remove_atom(atom)
 
@@ -168,7 +188,11 @@ class Complex:
                 ]
                 combined_lines = res_lines + new_lines
                 ordered_lines = []
-                for atom in const.ref_atoms[res[1]]:
+                if res[1] in MODIFIED_RESIDUES and self.replace_modified_res:
+                    key = MODIFIED_RESIDUES[res[1]]
+                else:
+                    key = res[1]
+                for atom in const.ref_atoms[key]:
                     for line in combined_lines:
                         if line[12:16].strip() == atom:
                             ordered_lines.append(line)
@@ -189,7 +213,11 @@ class Complex:
                 ]
                 combined_lines = res_lines + new_lines
                 ordered_lines = []
-                for atom in const.ref_atoms[res[1]]:
+                if res[1] in MODIFIED_RESIDUES and self.replace_modified_res:
+                    key = MODIFIED_RESIDUES[res[1]]
+                else:
+                    key = res[1]
+                for atom in const.ref_atoms[key]:
                     for line in combined_lines:
                         if line[12:16].strip() == atom:
                             ordered_lines.append(line)
@@ -333,7 +361,7 @@ class Complex:
         )  
 
     def process_for_guidance(
-        self, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True
+        self, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True, guide_backbone=True
     ):
         # if self.redesign_pocket and self.outer_pocket do not exist, use the below
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
@@ -358,14 +386,47 @@ class Complex:
             ]
         )
         if fix_hetatms:
-            hetatm_pocket_coords = np.array(
-                [
-                    [atom.x, atom.y, atom.z]
-                    for key, molecule in self.heteratoms_molecules.items()
-                    for atom in molecule.atoms.values()
-                    if key in hetatm_pocket
-                ]
-            )
+            hetatm_pocket_coords = []
+            hetatm_smiles_list = []
+            for key, molecule in self.heteratoms_molecules.items():
+                if key in hetatm_pocket:
+                    hetatm_coords = np.array(
+                        [[atom.x, atom.y, atom.z] for atom in molecule.atoms.values()]
+                    )
+                    if hetatm_coords.size > 0:
+                        mol = Chem.MolFromPDBBlock(molecule.pdbblock)
+                        try:
+                            hetatom_atom_mapping, hetatom_smiles = self.create_atom_mapping(mol, ccd=key[1])
+                        except Exception as e:
+                            logger.error(f"Error creating atom mapping for {key}: {e}")
+                            try:
+                                hetatom_atom_mapping, hetatom_smiles = self.create_atom_mapping(mol)
+                            except Exception as e:
+                                logger.error(f"Error creating atom mapping for {key} without CCD: {e}")
+                                hetatom_atom_mapping = {i: i for i in range(mol.GetNumAtoms())}
+                                hetatom_smiles = Chem.MolToSmiles(mol)
+                        hetatm_smiles_list.append(hetatom_smiles)
+                        reordered_hetatm_coords = np.array(
+                            [
+                                mol.GetConformer().GetPositions()[hetatom_atom_mapping[i]]
+                                for i in range(len(mol.GetConformer().GetPositions()))
+                            ]
+                        )
+                        hetatm_pocket_coords.append(
+                            reordered_hetatm_coords
+                        )
+            if len(hetatm_pocket_coords) > 0:
+                hetatm_pocket_coords = np.concatenate(hetatm_pocket_coords, axis=0)
+            else:
+                hetatm_pocket_coords = np.array([])
+            # hetatm_pocket_coords = np.array(
+            #     [
+            #         [atom.x, atom.y, atom.z]
+            #         for key, molecule in self.heteratoms_molecules.items()
+            #         for atom in molecule.atoms.values()
+            #         if key in hetatm_pocket
+            #     ]
+            # )
         else:
             hetatm_pocket_coords = np.array(
                 [
@@ -400,31 +461,40 @@ class Complex:
             pocket_coords, whole_pocket_atom_indices
         )
         redesigned_pocket_atom_indices = self.get_pocket_redesign_atom_indices(
-            redesign_pocket, expanded_residues, new_chain
+            redesign_pocket, expanded_residues, new_chain, guide_backbone=False
+        )
+        redesigned_pocket_atom_indices_without_backbone = self.get_pocket_redesign_atom_indices(
+            redesign_pocket, expanded_residues, new_chain, guide_backbone=True
         )
         constraint_atom_indices = [
             i
             for i in cleaned_whole_pocket_atom_indices
             if i not in redesigned_pocket_atom_indices
         ]
-        constrain_atom_indices_with_ligand = constraint_atom_indices + [
+        constrain_atom_indices_with_backbone = [
+            i 
+            for i in cleaned_whole_pocket_atom_indices
+            if i not in redesigned_pocket_atom_indices_without_backbone
+        ]
+        constrain_atom_indices_with_ligand = constrain_atom_indices_with_backbone + [
             len(pocket_coords) + j for j in range(self.ligand.GetNumHeavyAtoms())
         ]
         # TODO convert coords to 999.999 if in redesigned pocket
         pocket_coords_altered = np.array(
             [
-                atom if i in constraint_atom_indices else [999.999, 999.999, 999.999]
+                atom if i in constrain_atom_indices_with_backbone else [999.999, 999.999, 999.999]
                 for i, atom in enumerate(pocket_coords)
             ]
         )
-        atom_mapping = self.create_atom_mapping()
+        # get number of rows with 999.999
+        lig_atom_mapping, lig_smiles = self.create_atom_mapping(self.ligand)
         
         lig_mol_copy = Chem.Mol(self.ligand)
         lig_mol_copy = Chem.RemoveAllHs(lig_mol_copy)
         
         reordered_ligand_coords = np.array(
             [
-                lig_mol_copy.GetConformer().GetPositions()[atom_mapping[i]]
+                lig_mol_copy.GetConformer().GetPositions()[lig_atom_mapping[i]]
                 for i in range(len(lig_mol_copy.GetConformer().GetPositions()))
             ]
         )
@@ -434,37 +504,76 @@ class Complex:
         pocket_coords_centred = self.centre_coords(
             combined_coords, constraint_atom_indices
         )
+        ligand_coords_centred = pocket_coords_centred[
+            len(pocket_coords_altered) :
+        ]
         return {
             "sequence": new_sequence,
-            "smiles": Chem.MolToSmiles(lig_mol_copy),
+            "smiles": lig_smiles,
             "pocket_coords": pocket_coords_centred,
             "pocket_constraint_residue_indices": pocket_constraint_residue_indices,
             "whole_pocket_atom_indices": constraint_atom_indices,
             "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_ligand,
+            # "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_backbone,
             "pdbblock_ref": whole_pdbblock,
-            "other_hetatms": [res[1] for res in hetatm_pocket],
-            "modified_residues": pocket_modified_residues,
+            "other_hetatms": hetatm_smiles_list,
+            "modified_residues": pocket_modified_residues if not self.replace_modified_res else {},
+            "sidechain_atom_mask": self.get_sidechain_atom_indices(expanded_residues),
+            "docking_sphere_centre": np.mean(ligand_coords_centred, axis=0),
+            # "docking_sphere_centre": pocket_coords_centred[0] + [25.0, 25.0, 25.0],
+            "ligand_atom_indices": [
+                i + len(pocket_coords_altered) for i in range(self.ligand.GetNumHeavyAtoms())
+            ],
         }
     
-    def create_atom_mapping(self):
-        """Generate full atom mapping between ref and query using O3A."""
-        query_mol = Chem.RemoveAllHs(self.ligand)
-        ref_mol = Chem.MolFromSmiles(Chem.MolToSmiles(self.ligand))
-        ref_mol = Chem.AddHs(ref_mol)
+    def get_sidechain_atom_indices(self, expanded_residues):
+        """Return indices of side chain atoms (excluding backbone atoms CA, C, N, O)."""
+        backbone_atoms = {"CA", "C", "N", "O"}
+        # backbone_atoms = {}
+        indices = []
+        idx = 0
+        for res in self.protein_molecules:
+            if res in expanded_residues:
+                for atom in self.protein_molecules[res].atoms.values():
+                    if atom.atom_name not in backbone_atoms:
+                        indices.append(idx)
+                    idx += 1
+        return indices
 
+    def create_atom_mapping(self, mol, ccd=None):
+        """Generate full atom mapping between ref and query using O3A."""
+        if ccd is not None:
+            try:
+                mols = self.ccd_pkl
+                with open(mols, "rb") as f:
+                    ccd_mol = pickle.load(f)
+                template_mol = ccd_mol[ccd]
+                template_mol = Chem.RemoveAllHs(template_mol)
+                query_mol = AllChem.AssignBondOrdersFromTemplate(
+                    template_mol, mol
+                )
+                query_mol = Chem.RemoveAllHs(query_mol)
+            except Exception as e:
+                logger.error(f"Error in assign bond orders from ccd: {e}. Will just use no bond orders.")
+                query_mol = Chem.RemoveAllHs(mol)
+        else:
+            query_mol = Chem.RemoveAllHs(mol)
+        ref_mol = Chem.MolFromSmiles(Chem.MolToSmiles(query_mol))
+        ref_mol = Chem.AddHs(ref_mol)
         # Ensure both have 3D conformers
+        
         AllChem.EmbedMolecule(ref_mol, randomSeed=42)
         ref_mol = Chem.RemoveAllHs(ref_mol)
         if query_mol.GetNumConformers() == 0:
             raise ValueError("Query molecule has no conformer")
-
+        # print("Query smiles:", Chem.MolToSmiles(query_mol))
+        # print("Reference smiles:", Chem.MolToSmiles(ref_mol))
         _, _, atom_mapping = Chem.rdMolAlign.GetBestAlignmentTransform(
             ref_mol, query_mol
         )
         if len(atom_mapping) != query_mol.GetNumAtoms() != len(ref_mol.GetAtoms()):
             raise ValueError(f"Atom mapping incomplete: not all atoms mapped {len(atom_mapping)} / {query_mol.GetNumAtoms()} atoms")
-        print(atom_mapping)
-        return {i[0]: i[1] for i in atom_mapping}
+        return {i[0]: i[1] for i in atom_mapping}, Chem.MolToSmiles(mol)
 
     def centre_coords(self, coords, mask):
         return coords - np.mean(coords[mask], axis=0)
@@ -478,15 +587,17 @@ class Complex:
         return [i for i in whole_pocket_atom_indices if i not in missing_residues]
 
     def get_pocket_redesign_atom_indices(
-        self, redesign_pocket, expanded_residues, new_chains
+        self, redesign_pocket, expanded_residues, new_chains, guide_backbone=True
     ):
         residue_keys_atoms = []
+        backbone_atoms = {"CA", "C", "N", "O"}
         count = 0
         for key, molecule in self.protein_molecules.items():
             if key in expanded_residues:
                 if key in redesign_pocket:
                     for atom in molecule.atoms.values():
-                        residue_keys_atoms.append(count)
+                        if not (guide_backbone and atom.atom_name in backbone_atoms):
+                            residue_keys_atoms.append(count)
                         count += 1
                 else:
                     count += len(molecule.atoms)
@@ -671,6 +782,11 @@ class Complex:
                     if res[3] not in modified_residues_pocket:
                         modified_residues_pocket[new_chain] = {}
                     modified_residues_pocket[new_chain] = (j, res[1])
+                    print(
+                        f"Found modified residue {res[1]} at position {j} in chain {new_chain}"
+                    )
+                    print("Num atoms", len(self.protein_molecules[res].atoms))
+        print("MODIFIED RESIDUES POCKET", modified_residues_pocket)
         return modified_residues_pocket
 
 

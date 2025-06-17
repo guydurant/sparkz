@@ -91,7 +91,6 @@ def get_chain_for_position(pos, sequences):
         start = end + 1  # Move to the next chain range
     raise ValueError(f"Position {pos} is out of range")
 
-
 def make_batch_from_sequence(
     sequences: dict,
     ligand_smiles: str,
@@ -103,152 +102,102 @@ def make_batch_from_sequence(
     positions=None,
     no_msa=False,
     use_constraints=False,
+    create_docking_sphere=True,
 ):
-    """
-    Make a batch from the protein sequence and ligand information.
-
-    Args:
-        sequence (dict): Dictionary containing the protein sequence with chain ID as key.
-        ligand_smiles (str): Ligand SMILES string.
-        modified_residues (dict): Dictionary containing the modified residues for each chain.
-        mode (str): The mode to run the model in, either 'nothing', 'inpainting', or 'guided'.
-        datetime_ (str): The datetime string for the output file.
-        positions (List[int]): The positions of the interacting residues
-
-
-
-    Returns:
-        torch.Tensor: The input batch for the model.
-    """
-    SEQUENCE_TEMPLATE = """
-    - protein:
-        id: {id}
-        sequence: "{sequence}"
-        {modified_residues}
-    """
-    if no_msa:
-        SEQUENCE_TEMPLATE = (
-            SEQUENCE_TEMPLATE
-            + """
-        msa: empty
-    """
-        )
-    elif msa_dir is not None and os.path.exists(msa_dir):
-        SEQUENCE_TEMPLATE = (
-            SEQUENCE_TEMPLATE
-            + """
-        msa: "{msa}"
-    """
-        )
-    else:
-        SEQUENCE_TEMPLATE = (
-            SEQUENCE_TEMPLATE
-            + """
-    """
-        )
-    MODIFIED_RESIDUE_TEMPLATE = """
+    def get_modified_residue_yaml(chain, values):
+        if not values:
+            return ""
+        pos, ccd = values
+        return f"""
         modifications:
-            - position: {position}
+            - position: {pos + 1}
               ccd: "{ccd}"
-    """
-    LIGAND_TEMPLATE = """
+        """
+
+    def build_sequence_yaml():
+        entries = []
+        for chain_id, sequence in sequences.items():
+            mod_res = get_modified_residue_yaml(chain_id, modified_residues.get(chain_id))
+            msa_line = 'msa: empty' if no_msa else (f'msa: "{msa_dir}/{chain_id}.csv"' if msa_dir else "")
+            entry = f"""
+    - protein:
+        id: {chain_id}
+        sequence: "{sequence}"
+        {mod_res}
+        {msa_line}
+            """.rstrip()
+            entries.append(entry)
+        return "\n".join(entries) + "\n" if entries else ""
+
+    def build_hetatm_yaml():
+        return "\n".join(
+    f"""
     - ligand:
-        smiles: '{ligand}'
-        id: {id}
-    """
-    HETATM_TEMPLATE = """
+        smiles: "{hetatm}"
+        id: {next_letter(list(sequences.keys()), nums=i)}
+            """.rstrip()
+            for i, hetatm in enumerate(other_hetatms)
+        ) + "\n" if other_hetatms else ""
+
+    def build_ligand_yaml():
+        ligand_id = next_letter(list(sequences.keys()), nums=len(other_hetatms))
+        return f"""
     - ligand:
-        ccd: "{ligand}"
-        id: {id}
-    """
-    CONSTRAINTS_TEMPLATE = """
+        smiles: '{ligand_smiles}'
+        id: {ligand_id}
+        """
+
+    def build_constraints_yaml():
+        if not (ligand_smiles and positions and use_constraints):
+            return ""
+        binder_id = next_letter(list(sequences.keys()), nums=len(other_hetatms))
+        contact_ids = [get_chain_for_position(pos, sequences) for pos in positions]
+        return f"""
     constraints:
     - pocket:
-        binder: {binder}
-        contacts: {contacts}
-    """
+        binder: {binder_id}
+        contacts: {contact_ids}
+        """
 
-    YAML_TEMPLATE = """
-    sequences:
-        {protein}
-        {ligand}
-        {constraints}
-    version: 1
-    """
-    modified_residues_yamls = {
-        chain: (
-            # WARNING is 1-indexed
-            MODIFIED_RESIDUE_TEMPLATE.format(position=values[0] + 1, ccd=values[1])
-            if values
-            else ""
-        )
-        for chain, values in modified_residues.items()
-    }
-    protein_yamls = "\n".join(
-        [
-            SEQUENCE_TEMPLATE.format(
-                id=k,
-                sequence=v,
-                modified_residues=modified_residues_yamls.get(k, ""),
-                msa=f"{msa_dir}/{k}.csv",
-            )
-            for k, v in sequences.items()
-        ]
-    )
-    other_hetatms_yaml = "\n".join(
-        [
-            HETATM_TEMPLATE.format(
-                id=next_letter(list(sequences.keys()), nums=i), ligand=hetatm
-            )
-            for i, hetatm in enumerate(other_hetatms)
-        ]
-    )
-    if ligand_smiles is None:
-        yaml = YAML_TEMPLATE.format(
-            protein=protein_yamls,
-            ligand="",
-            constraints="",
-        )
-    elif ligand_smiles is not None and positions is not None and use_constraints:
-        yaml = YAML_TEMPLATE.format(
-            protein=protein_yamls,
-            ligand=other_hetatms_yaml
-            + LIGAND_TEMPLATE.format(
-                id=next_letter(list(sequences.keys()), nums=len(other_hetatms)),
-                ligand=ligand_smiles,
-            ),
-            constraints=CONSTRAINTS_TEMPLATE.format(
-                binder=next_letter(list(sequences.keys()), nums=len(other_hetatms)),
-                # WARNING is 1-indexed
-                contacts=[get_chain_for_position(pos, sequences) for pos in positions],
-            ),
-        )
-    else:
-        yaml = YAML_TEMPLATE.format(
-            protein=protein_yamls,
-            ligand=other_hetatms_yaml
-            + LIGAND_TEMPLATE.format(
-                id=next_letter(list(sequences.keys()), nums=len(other_hetatms)),
-                ligand=ligand_smiles,
-            ),
-            constraints="",
-        )
-    # make io yaml file
-    Path(f"{out_dir}").mkdir(parents=True, exist_ok=True)
-    with open(f"{out_dir}/input.yaml", "w") as f:
-        f.write(yaml)
+    def build_docking_sphere_yaml():
+        if not create_docking_sphere:
+            return ""
+        docking_id = next_letter(list(sequences.keys()), nums=len(other_hetatms) + 1)
+        return f"""
+    - ligand:
+        smiles: 'C'
+        id: {docking_id}
+        """
+
+    # Build YAML
+    yaml_str = f"""
+        sequences:
+        {build_sequence_yaml()}
+        {build_hetatm_yaml()}
+        {build_ligand_yaml()}
+        {build_constraints_yaml()}
+        version: 1
+    """.strip()
+
+    # Write to disk
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    input_yaml_path = Path(out_dir) / "input.yaml"
+    input_yaml_path.write_text(yaml_str)
+
+    # Process input and return dataloader
     process_inputs(
-        data=[Path(f"{out_dir}/input.yaml")],
-        out_dir=Path(f"{out_dir}"),
-        ccd_path=Path(f"{cache_dir}/ccd.pkl"),
+        data=[input_yaml_path],
+        out_dir=Path(out_dir),
+        ccd_path=Path(cache_dir) / "ccd.pkl",
         use_msa_server=True,
         msa_server_url="https://api.colabfold.com",
         msa_pairing_strategy="greedy",
     )
     data_module = BoltzInferenceDataModule(
-        manifest=Manifest.load(Path(f"{out_dir}/processed/manifest.json")),
-        target_dir=Path(f"{out_dir}/processed/structures"),
-        msa_dir=Path(f"{out_dir}/processed/msa"),
+        manifest=Manifest.load(Path(out_dir) / "processed" / "manifest.json"),
+        target_dir=Path(out_dir) / "processed" / "structures",
+        msa_dir=Path(out_dir) / "processed" / "msa",
         num_workers=1,
     )
     return next(iter(data_module.predict_dataloader()))
+

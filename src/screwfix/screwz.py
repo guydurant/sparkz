@@ -1,8 +1,8 @@
-from boltz.model.model import Boltz1
+from boltz.model.models.boltz1 import Boltz1
 import torch
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal
 from torch import Tensor, nn
-from inpainting.modified_atom_diffusion import GuidedAtomDiffusion
+from screwfix.modified_atom_diffusion import GuidedAtomDiffusion
 
 
 class Screwz1(Boltz1):
@@ -42,6 +42,8 @@ class Screwz1(Boltz1):
         max_dist: float = 22.0,
         predict_args: Optional[dict[str, Any]] = None,
         steering_args: Optional[dict[str, Any]] = None,
+        use_kernels: bool = False,
+        dock: bool = False,
     ) -> None:
         super().__init__(
             atom_s=atom_s,
@@ -78,6 +80,7 @@ class Screwz1(Boltz1):
             max_dist=max_dist,
             predict_args=predict_args,
             steering_args=steering_args,
+            use_kernels=use_kernels,
         )
         use_accumulate_token_repr = (
             confidence_prediction
@@ -99,9 +102,6 @@ class Screwz1(Boltz1):
             accumulate_token_repr=use_accumulate_token_repr,
             **diffusion_process_args,
         )
-
-
-
     def forward(
         self,
         feats: dict[str, Tensor],
@@ -109,7 +109,10 @@ class Screwz1(Boltz1):
         num_sampling_steps: Optional[int] = None,
         multiplicity_diffusion_train: int = 1,
         diffusion_samples: int = 1,
+        max_parallel_samples: Optional[int] = None,
         run_confidence_sequentially: bool = False,
+        docking_sphere_centre: Optional[Tensor] = None,
+        guidance_type: Literal["rigid", "flex"] = "flex",
     ) -> dict[str, Tensor]:
         # Compute input embeddings
         with torch.set_grad_enabled(
@@ -151,7 +154,7 @@ class Screwz1(Boltz1):
 
                     # Compute pairwise stack
                     if not self.no_msa:
-                        z = z + self.msa_module(z, s_inputs, feats)
+                        z = z + self.msa_module(z, s_inputs, feats, use_kernels=self.use_kernels)
 
                     # Revert to uncompiled version for validation
                     if self.is_pairformer_compiled and not self.training:
@@ -161,7 +164,7 @@ class Screwz1(Boltz1):
                     else:
                         pairformer_module = self.pairformer_module
 
-                    s, z = pairformer_module(s, z, mask=mask, pair_mask=pair_mask)
+                    s, z = pairformer_module(s, z, mask=mask, pair_mask=pair_mask, use_kernels=self.use_kernels)
 
             pdistogram = self.distogram_module(z)
             dict_out = {"pdistogram": pdistogram}
@@ -191,11 +194,13 @@ class Screwz1(Boltz1):
                     num_sampling_steps=num_sampling_steps,
                     atom_mask=feats["atom_pad_mask"],
                     multiplicity=diffusion_samples,
+                    max_parallel_samples=max_parallel_samples,
                     train_accumulate_token_repr=self.training,
                     atom_coords_true=feats["ref_pos"],
-                    atom_coords_true_mask_no_ligands=feats["inpainting_mask"],
-                    atom_coords_true_mask_with_ligands=feats["inpainting_mask_with_ligands"],
+                    atom_coords_true_mask=feats["inpainting_mask_with_ligands"],
                     ligand_mask=feats["ligand_atom_mask"],
+                    docking_sphere_centre=docking_sphere_centre,
+                    guidance_type=guidance_type,
                 )
             )
 
@@ -218,6 +223,7 @@ class Screwz1(Boltz1):
                     pred_distogram_logits=dict_out["pdistogram"].detach(),
                     multiplicity=diffusion_samples,
                     run_sequentially=run_confidence_sequentially,
+                    use_kernels=self.use_kernels,
                 )
             )
         if self.confidence_prediction and self.confidence_module.use_s_diffusion:

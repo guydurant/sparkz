@@ -10,6 +10,7 @@ from scipy.spatial.distance import cdist
 import numpy as np
 import logging
 import pickle
+import io
 from rdkit.Chem import rdFMCS
 
 
@@ -17,17 +18,27 @@ logger = logging.getLogger(__name__)
 
 
 class Complex:
-    def __init__(self, pdb_path, ligand, ligand_code, replace_modified_res=True, ccd_pkl="/homes/durant/ccd.pkl"):
+    def __init__(self, pdb_path, ligand, ligand_code, replace_modified_res=True, cache_dir="/homes/durant"):
+        self._load_complex(
+            pdb_path,
+            ligand_path=ligand,
+            ligand_code=ligand_code,
+            replace_modified_res=replace_modified_res,
+        )
+        self.ccd_pkl = f"{cache_dir}/ccd.pkl"
+        
+    
+    def _load_complex(self, pdb_path, ligand_path, ligand_code, replace_modified_res=True):
         self.protein_molecules = {}
         self.heteratoms_molecules = {}
         self.replace_modified_res = replace_modified_res
         self.read_pdbblock(pdb_path)
+        self.ligand = self.read_ligand(ligand_path)
         self.filter_heteratoms()
         self.clean_protein()
-        self.ligand = self.read_ligand(ligand)
         self.ligand_code = ligand_code
         self.sequence = self.get_sequence()
-        self.ccd_pkl = ccd_pkl
+        
 
     def read_pdbblock(self, pdb_path):
         with open(pdb_path, "r") as f:
@@ -81,6 +92,53 @@ class Complex:
                 current_pdbblock += line
             else:
                 raise ValueError("Unknown residue type.")
+    
+    @classmethod
+    def from_ligandmpnn_scpack(cls, pdb_path, ligand_file, ligand_code, replace_modified_res=True, cache_dir=".cache"):
+        from processing.ligandmpnn_scpack import restype_3to1, get_ligandmpnn_sc_prior
+        from pymol import cmd
+        from ligandmpnn.data_utils import (
+            restype_str_to_int,
+        )
+        obj = cls(pdb_path, ligand_file, ligand_code, replace_modified_res=replace_modified_res)
+        redesign_pocket, outer_pocket = obj.get_protein_pocket(inner_threshold=5, outer_threshold=8)
+        total_pdbblock = ""
+        with open(pdb_path, "r") as f:
+            pdb_lines = f.readlines()
+        ligand_pdb = Chem.MolToPDBBlock(Chem.MolFromMolFile(ligand_file))
+        total_pdbblock = "".join(pdb_lines) + ligand_pdb
+        with open("total_pdbblock.pdb", "w") as f:
+            f.write(total_pdbblock)
+        fixed_residues = {i: restype_str_to_int[restype_3to1[res[1]]] for i, res in enumerate(obj.protein_molecules.keys()) if res not in redesign_pocket}
+        get_ligandmpnn_sc_prior(
+            "total_pdbblock.pdb",   
+            fixed_residues, 
+            cache=".cache", outfile="ligand_scpacked.pdb"
+        )
+        with open("ligand_scpacked.pdb", "r") as f:
+            protein_scpacked_file = f.read()
+        # remove any UNK residues
+        protein_scpacked_file = "\n".join(
+            [line for line in protein_scpacked_file.split("\n") if "UNL" not in line]
+        )
+        with open("ligand_scpacked_no_lig.pdb", "w") as f:
+            f.write(protein_scpacked_file)
+        cmd.reinitialize()
+        cmd.load("ligand_scpacked_no_lig.pdb", "ligandmpnn_attempt")
+        cmd.load(pdb_path, "ground_truth")
+        cmd.align("ligandmpnn_attempt", "ground_truth")
+        cmd.save("ligand_scpacked_no_lig_aligned.pdb", "ligandmpnn_attempt")
+        cmd.delete("all")
+        new_cls = cls(
+            "ligand_scpacked_no_lig_aligned.pdb",
+            ligand_file,
+            ligand_code,
+            replace_modified_res=replace_modified_res,
+        )
+        new_cls.redesign_pocket = redesign_pocket
+        new_cls.outer_pocket = outer_pocket  
+        return new_cls
+
 
     def filter_heteratoms(self):
         for key in self.heteratoms_molecules.copy():
@@ -308,7 +366,7 @@ class Complex:
             # print("Now mutated to", self.protein_molecules[key].resname, "with pdbblock", self.protein_molecules[key].pdbblock)
 
     
-    def alter_sequence(self, new_sequence, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=False):
+    def alter_sequence(self, new_sequence, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True,  guide_ligand=True, guide_sc=False):
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
             redesign_pocket, outer_pocket = self.get_protein_pocket(
                 inner_threshold, outer_threshold
@@ -323,6 +381,9 @@ class Complex:
         for key, new_res in zip(expanded_residues, new_sequence):
             res = self.protein_molecules[key]
             three_letter_new_res = const.prot_letter_to_token[new_res]
+            if three_letter_new_res == key[1]:
+                continue
+            print(f"Changing residue {key} from {key[1]} to {three_letter_new_res}")
             if res.resname != three_letter_new_res:
                 old_pdbblock = res.get_new_pdbblock()
                 res.resname = three_letter_new_res
@@ -358,10 +419,12 @@ class Complex:
             outer_threshold=outer_threshold,
             sequence_buffer=sequence_buffer,
             fix_hetatms=fix_hetatms,
+            guide_ligand=guide_ligand,
+            guide_sc=guide_sc,
         )  
 
     def process_for_guidance(
-        self, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True, guide_backbone=True
+        self, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True, guide_ligand=True, guide_sc=False
     ):
         # if self.redesign_pocket and self.outer_pocket do not exist, use the below
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
@@ -461,12 +524,12 @@ class Complex:
             pocket_coords, whole_pocket_atom_indices
         )
         redesigned_pocket_atom_indices = self.get_pocket_redesign_atom_indices(
-            redesign_pocket, expanded_residues, new_chain, guide_backbone=False
+            redesign_pocket, expanded_residues, new_chain, guide_backbone=False, guide_sc=guide_sc
         )
         redesigned_pocket_atom_indices_without_backbone = self.get_pocket_redesign_atom_indices(
-            redesign_pocket, expanded_residues, new_chain, guide_backbone=True
+            redesign_pocket, expanded_residues, new_chain, guide_backbone=True, guide_sc=guide_sc
         )
-        constraint_atom_indices = [
+        constrain_atom_indices = [
             i
             for i in cleaned_whole_pocket_atom_indices
             if i not in redesigned_pocket_atom_indices
@@ -502,7 +565,7 @@ class Complex:
             [pocket_coords_altered, reordered_ligand_coords], axis=0
         )
         pocket_coords_centred = self.centre_coords(
-            combined_coords, constraint_atom_indices
+            combined_coords, constrain_atom_indices_with_backbone
         )
         ligand_coords_centred = pocket_coords_centred[
             len(pocket_coords_altered) :
@@ -512,8 +575,8 @@ class Complex:
             "smiles": lig_smiles,
             "pocket_coords": pocket_coords_centred,
             "pocket_constraint_residue_indices": pocket_constraint_residue_indices,
-            "whole_pocket_atom_indices": constraint_atom_indices,
-            "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_ligand,
+            "whole_pocket_atom_indices": constrain_atom_indices,
+            "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_ligand if guide_ligand else constrain_atom_indices_with_backbone,
             # "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_backbone,
             "pdbblock_ref": whole_pdbblock,
             "other_hetatms": hetatm_smiles_list,
@@ -587,17 +650,20 @@ class Complex:
         return [i for i in whole_pocket_atom_indices if i not in missing_residues]
 
     def get_pocket_redesign_atom_indices(
-        self, redesign_pocket, expanded_residues, new_chains, guide_backbone=True
+        self, redesign_pocket, expanded_residues, new_chains, guide_backbone=True, guide_sc=False
     ):
         residue_keys_atoms = []
         backbone_atoms = {"CA", "C", "N", "O"}
+            
         count = 0
         for key, molecule in self.protein_molecules.items():
             if key in expanded_residues:
                 if key in redesign_pocket:
                     for atom in molecule.atoms.values():
                         if not (guide_backbone and atom.atom_name in backbone_atoms):
-                            residue_keys_atoms.append(count)
+                            if not guide_sc:        
+                                # print(f"Adding atom {atom.atom_name} from residue {key} to redesign pocket")
+                                residue_keys_atoms.append(count)
                         count += 1
                 else:
                     count += len(molecule.atoms)
@@ -786,7 +852,6 @@ class Complex:
                         f"Found modified residue {res[1]} at position {j} in chain {new_chain}"
                     )
                     print("Num atoms", len(self.protein_molecules[res].atoms))
-        print("MODIFIED RESIDUES POCKET", modified_residues_pocket)
         return modified_residues_pocket
 
 

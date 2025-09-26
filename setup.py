@@ -5,16 +5,15 @@ setup(
     version='0.1',
     package_dir={'': 'src'},
     packages=find_packages(where='src'),
-    install_requires=[
-        'rdkit',
-        'torchvision==0.21.0',
-        'boltz @ git+https://github.com/guydurant/boltz.git',                    # if it's on PyPI
-        'pdbfixer @ git+https://github.com/openmm/pdbfixer.git'
+    install_requires=[                 # if it's on PyPI
+        'pdbfixer @ git+https://github.com/openmm/pdbfixer.git',
+        "ligandmpnn @ git+https://github.com/guydurant/LigandMPNN.git",
+        'boltz',   
     ],
     entry_points={
         'console_scripts': [
             'sparkz=cli:main',
-            'screwz=inpainting.main:main',
+            'screwz=screwfix.main:main',
         ],
     },
 )

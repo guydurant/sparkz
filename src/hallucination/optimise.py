@@ -245,4 +245,5 @@ def optimise_pocket_sequence_bindcraft(
             )
         ]
     )
+    print("Final confidence score:", confidence_score.mean().item())
     return final_sequence

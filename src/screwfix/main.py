@@ -1,12 +1,13 @@
 import pandas as pd
 import torch
-from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download
+from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download_boltz1, download_boltz2
 from pathlib import Path
 from dataclasses import asdict
-import click
+from ligandmpnn import sc_utils
 import os
-from boltz.model.model import Boltz1
-from inpainting.screwz import Screwz1
+from boltz.model.models.boltz1 import Boltz1
+from boltz.data.write.writer import BoltzWriter
+from screwfix.screwz import Screwz1
 from tqdm import tqdm
 from boltz.main import process_inputs  # , BoltzProcessedInput, download
 from boltz.data.types import Manifest
@@ -15,6 +16,8 @@ from processing.complex import Complex
 from utils.writer import write_complex
 from utils.batch_generate import make_batch_from_sequence
 import time
+import hydra
+from omegaconf import DictConfig
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -26,25 +29,9 @@ else:
 predict_args = {
     "recycling_steps": 3,
     "sampling_steps": 200,
+    "mx_parallel_samples": 1,
     "diffusion_samples": 1,
 }
-
-def process_csv_file(csv_file):
-    """
-    Process the CSV file to extract ligand, protein, PID, and CCD information.
-
-    Args:
-        csv_file (str): Path to the CSV file.
-
-    Returns:
-        Tuple[List[str], List[str], List[str], List[str]]: Lists of ligands, proteins, PIDs, and CCDs.
-    """
-    df = pd.read_csv(csv_file)
-    ligands = df["ligand"].tolist()
-    proteins = df["protein"].tolist()
-    pids = df["pid"].tolist()
-    ccds = df["ccd"].tolist()
-    return ligands, proteins, pids, ccds
 
 def infer(
     model,
@@ -64,10 +51,13 @@ def infer(
     use_constraints=False,
     docking_sphere_centre=None,
     cache_dir=None,
+    use_scpot=False,
+    guidance_type="flex",
     predict_args={
         "recycling_steps": 3,
         "sampling_steps": 200,
         "diffusion_samples": 1,
+        "max_parallel_samples": 1,
     }
 ):
     """
@@ -99,6 +89,7 @@ def infer(
         no_msa=no_msa,
         use_constraints=use_constraints,
         cache_dir=cache_dir,
+        dock= False,  # docking_sphere_centre is not None,
     )
     
     if torch.cuda.is_available():
@@ -107,12 +98,9 @@ def infer(
         device = torch.device("mps")
     else:   
         device = torch.device("cpu")
-    # print("REF POS SHAPE", batch["ref_pos"].shape)
-    # print("ATOM PAD MASK SUM", batch["atom_pad_mask"].sum())
     side_chain_atom_mask = torch.zeros(
         batch["ref_pos"].shape[:2], dtype=torch.long, device=batch["ref_pos"].device
     )
-    print(batch["ref_pos"].shape, "REF POS SHAPE")
     side_chain_atom_mask[:, side_chain_atom_mask_indices] = 1
     batch["sidechain_atom_mask"] = side_chain_atom_mask
     # batch["docking_sphere_centre"] = docking_sphere_centre
@@ -140,29 +128,12 @@ def infer(
         batch["inpainting_mask_with_ligands"] = inpainting_mask_with_ligands.unsqueeze(
             -1
         )
-        # if docking_sphere_centre is not None:
-        #     print("Doing things I shouldn't be doing")
-        #     print("Setting docking sphere centre to", docking_sphere_centre)
-        #     batch["ref_pos"][:, -1] = torch.tensor(
-        #         docking_sphere_centre,
-        #         dtype=batch["ref_pos"].dtype,
-        #         device=batch["ref_pos"].device,
-        #     )
-        #     # batch["docking_sphere_centre_index"] = max(fixed_with_ligands_indices) + 1
-        #     # batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1] = 0
-        #     # batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1] = torch.tensor(
-        #     #     0,
-        #     #     dtype=batch["atom_pad_mask"].dtype,
-        #     #     device=batch["atom_pad_mask"].device,
-        #     # )
-        #     # print(batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1])
-        #     # print(batch["atom_pad_mask"][:, max(fixed_with_ligands_indices)+1].dtype)
-        #     # print(batch["atom_pad_mask"][: , -30:])
-        #     # batch["token_resolved_mask"][:, -1] = 0
-        #     # batch["token_disto_mask"][:, -1] = 0
-        #     # batch["token_pad_mask"][:,-1] = 0
-        #     # batch["inpainting_mask"][:, max(fixed_with_ligands_indices)+1] = 1
-        #     batch["inpainting_mask_with_ligands"][:, -1] = 1
+    
+    if docking_sphere_centre is not None:
+        docking_sphere_centre = torch.tensor(
+            docking_sphere_centre, dtype=batch["ref_pos"].dtype, device=device
+        ).unsqueeze(0).unsqueeze(0)
+        print("Setting docking sphere centre to", docking_sphere_centre, "shape", docking_sphere_centre.shape)
     
     with torch.no_grad():
         out = model(
@@ -173,9 +144,12 @@ def infer(
             recycling_steps=predict_args.get("recycling_steps", 0),
             num_sampling_steps=predict_args.get("sampling_steps", 0),
             diffusion_samples=predict_args.get("diffusion_samples", 1),
+            max_parallel_samples=predict_args.get("diffusion_samples", 1),
             run_confidence_sequentially=predict_args.get(
                 "run_confidence_sequentially", True
             ),
+            docking_sphere_centre= docking_sphere_centre,
+            guidance_type=guidance_type,
         )
         out["confidence_score"] = (
             4 * out["complex_plddt"]
@@ -185,63 +159,32 @@ def infer(
                 else out["ptm"]
             )
         ) / 5
+        out["exception"] = False
+        out["masks"] = batch["atom_pad_mask"]
+        out["coords"] = out["sample_atom_coords"]
     return out, batch
 
 
-@click.command()
-@click.option("--protein_pdb_path", default=None, help="Path to input protein PDB file")
-@click.option("--ligand_sdf_path", default=None, help="Path to input ligand SDF file")
-@click.option(
-    "--pid",
-    default=None,
-    help="Unique Protein ID (e.g. 1a2b_1 or 1a2b_2) for the protein input",
-)
-@click.option(
-    "--ccd", default=None, help="Unique CCD code for the ligand input (e.g. ZRY or DMS)"
-)
-@click.option("--out_dir", type=str, help="Output directory", required=True)
-@click.option(
-    "--mode",
-    help="Mode to run the model in",
-    type=click.Choice(["inpainting", "default"]),
-    required=True,
-)
-@click.option(
-    "--guidance_rate",
-    type=float,
-    help="Guidance rate for the guided mode. Normally run as 1.0 so it is effectively inpainting",
-    default=1.0,
-)
-@click.option("--no_msa", type=bool, help="Disable MSA, so run in single-sequence mode", default=True)
-@click.option(
-    "--use_constraints", type=bool, help="Use constraints for docking", default=False
-)
-@click.option("--overwrite", type=bool, help="Overwrite existing files", default=False)
-@click.option("--cache", type=str, help="Cache directory", default="cache")
-def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_rate, no_msa, use_constraints, overwrite, cache):
-    model_names = {
-        "default": Boltz1,
-        "inpainting": Screwz1,
-    }
+@hydra.main(config_path=os.path.join(os.path.dirname(__file__), "../../config/screwfix"), config_name="config")
+def main(cfg: DictConfig):
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    print("Loading model for mode", mode, "on device", device)
-    steering_args = BoltzSteeringParams(
-            # fk_steering=False,
-            # guidance_update=False,
-    )
-        
-    cache_dir = Path(cache).resolve()
+    steering_args = BoltzSteeringParams() 
+    cache_dir = Path(cfg.cache).resolve()
     cache_dir.mkdir(parents=True, exist_ok=True)
-    download(cache_dir)
+    model_download = {
+        "boltz1": download_boltz1,
+        "boltz2": download_boltz2,
+    }
+    model_download[cfg.model](cache_dir)
     assert Path.exists(
         cache_dir / "boltz1_conf.ckpt"
     ), f"Model checkpoint not found in {cache_dir}"
-    _torch_model = model_names[mode].load_from_checkpoint(
+    _torch_model = Screwz1.load_from_checkpoint(
         Path(f"{cache_dir}/boltz1_conf.ckpt"),
         strict=True,
         map_location="cpu",
@@ -250,32 +193,34 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
         steering_args=asdict(steering_args),
         ema=False,
     )
-    if mode == "inpainting":
-        _torch_model.structure_module.set_guidance(guidance_rate, True) 
-        mode = f"{mode}_{guidance_rate}"
     _torch_model = _torch_model.to(device)
     _torch_model.training = False
     _torch_model.structure_prediction_training = False
     torch.set_grad_enabled(True)
     torch.set_float32_matmul_precision("highest")
     _torch_model.eval()
-    # if (
-    #     os.path.exists(f"{out_dir}/{pid}/predictions/input_model_0.pdb")
-    #     and not overwrite
-    # ):
-    #     print(f"Skipping {pid} as it already exists")
-    #     return
-    print(f"Predicting for {pid}")
-    if not os.path.exists(f"{out_dir}/{pid}"):
-        os.makedirs(f"{out_dir}/{pid}")
+    print(f"Predicting for {cfg.pid}")
     starttime = time.time()
     # complex_obj = Complex(protein, ligand, pid.split("_")[1])
-    complex_obj = Complex(protein_pdb_path, ligand_sdf_path, ccd)
-    processed_pdb = complex_obj.process_for_guidance(sequence_buffer=10)
-    with open(f"{out_dir}/{pid}/pdbblock_ref.pdb", "w") as f:
+    if not cfg.mode.use_ligandmpnn_scpack:
+        complex_obj = Complex(cfg.protein_pdb_path, cfg.ligand_sdf_path, cfg.ccd, cache_dir=cache_dir)
+        processed_pdb = complex_obj.process_for_guidance(sequence_buffer=10, guide_ligand= not cfg.mode.ligand_dock, guide_sc=cfg.mode.side_chain_flex)
+    else:
+        complex_obj = Complex.from_ligandmpnn_scpack(
+            cfg.protein_pdb_path,
+            cfg.ligand_sdf_path,
+            cfg.ccd,
+            cache_dir=cache_dir,
+        )
+        processed_pdb = complex_obj.process_for_guidance(
+            sequence_buffer=10,
+            guide_ligand=not cfg.mode.ligand_dock,
+            guide_sc=True, 
+        )
+    
+    with open(f"pdbblock_ref.pdb", "w") as f:
         f.write(processed_pdb["pdbblock_ref"])
     _torch_model.eval()
-    print(len(processed_pdb["ligand_atom_indices"]), len(processed_pdb["whole_pocket_atom_indices"]))
     predictions, batch = infer(
         _torch_model,
         processed_pdb["sequence"],
@@ -288,22 +233,39 @@ def main(protein_pdb_path, ligand_sdf_path, pid, ccd, out_dir, mode, guidance_ra
         processed_pdb["modified_residues"],
         processed_pdb["sidechain_atom_mask"],
         ligand_info=processed_pdb["smiles"],
-        out_dir=f"{out_dir}/{pid}",
+        out_dir=".",
         cache_dir=cache_dir,
         msa_dir=None,
-        no_msa=no_msa,
-        use_constraints=use_constraints,
-        docking_sphere_centre=None, #processed_pdb["docking_sphere_centre"],
+        no_msa=cfg.no_msa,
+        use_constraints=cfg.use_constraints,
+        docking_sphere_centre=processed_pdb["docking_sphere_centre"] if cfg.mode.ligand_dock else None,
+        # docking_sphere_centre=None, # turn off docking sphere as a bit buggy
+        guidance_type=cfg.mode.guidance_type,
     )
     time_taken = time.time() - starttime
     predictions["time_taken"] = time_taken
-    write_complex(
-        predictions,
-        Path(f"{out_dir}/{pid}/processed/structures"),
-        Path(f"{out_dir}/{pid}/predictions"),
-        batch,
-        output_format="pdb",
+    boltz_writer = BoltzWriter(
+        f"processed/structures",
+        f"predictions",
+        output_format="mmcif",
+        boltz2=False,
     )
+    boltz_writer.write_on_batch_end(
+        None,
+        None,
+        predictions,
+        0,
+        batch,
+        0, 
+        0,
+    )
+    # write_complex(
+    #     predictions,
+    #     Path(f"{out_dir}/{pid}/processed/structures"),
+    #     Path(f"{out_dir}/{pid}/predictions"),
+    #     batch,
+    #     output_format="pdb",
+    # )
 
 
 if __name__ == "__main__":

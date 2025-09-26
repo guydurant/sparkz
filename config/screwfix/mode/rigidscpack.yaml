@@ -1,0 +1,7 @@
+defaults:
+  - _self_
+
+guidance_type: rigid
+side_chain_flex: true
+ligand_dock: false
+use_ligandmpnn_scpack: false

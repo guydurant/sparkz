@@ -15,7 +15,7 @@ from boltz.model.potentials.schedules import (
     PiecewiseStepFunction,
 )
 from boltz.data import const
-from potentials.pocket_docking import DockingSpherePotential
+# from potentials.pocket_docking import DockingSpherePotential
 # from potentials.pocket_docking import PocketDockingPotential
 
 class SideChainVDWOverlapPotential(FlatBottomPotential, DistancePotential):

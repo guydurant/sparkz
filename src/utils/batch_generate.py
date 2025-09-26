@@ -102,7 +102,7 @@ def make_batch_from_sequence(
     positions=None,
     no_msa=False,
     use_constraints=False,
-    create_docking_sphere=True,
+    dock=False,
 ):
     def get_modified_residue_yaml(chain, values):
         if not values:
@@ -160,7 +160,7 @@ def make_batch_from_sequence(
         """
 
     def build_docking_sphere_yaml():
-        if not create_docking_sphere:
+        if not dock:
             return ""
         docking_id = next_letter(list(sequences.keys()), nums=len(other_hetatms) + 1)
         return f"""
@@ -188,16 +188,19 @@ def make_batch_from_sequence(
     process_inputs(
         data=[input_yaml_path],
         out_dir=Path(out_dir),
+        mol_dir=Path(cache_dir) / "mols.tar",
         ccd_path=Path(cache_dir) / "ccd.pkl",
         use_msa_server=True,
         msa_server_url="https://api.colabfold.com",
         msa_pairing_strategy="greedy",
+        boltz2=False,
     )
     data_module = BoltzInferenceDataModule(
         manifest=Manifest.load(Path(out_dir) / "processed" / "manifest.json"),
         target_dir=Path(out_dir) / "processed" / "structures",
         msa_dir=Path(out_dir) / "processed" / "msa",
         num_workers=1,
+        constraints_dir=Path(out_dir) / "processed" / "constraints",
     )
     return next(iter(data_module.predict_dataloader()))
 

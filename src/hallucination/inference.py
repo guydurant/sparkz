@@ -1,4 +1,4 @@
-from boltz.model.model import Boltz1
+from boltz.model.models.boltz1 import Boltz1
 from boltz.main import BoltzDiffusionParams 
 from boltz.data.write.writer import BoltzWriter
 from dataclasses import asdict
@@ -9,7 +9,7 @@ from tqdm import tqdm
 from pytorch_lightning import Trainer, LightningModule
 from typing import Any, Dict
 import torch.optim as optim
-from boltz.main import process_inputs, BoltzProcessedInput, download
+from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download_boltz1, download_boltz2
 from boltz.data.types import MSA, Manifest, Record
 from boltz.data.module.inference import BoltzInferenceDataModule
 from boltz.model.modules.confidence_utils import compute_aggregated_metric
@@ -20,7 +20,7 @@ from datetime import datetime
 import numpy as np
 import random
 # import wandb
-from hallucination.loss import bindcraft_like_loss
+# from hallucination.loss import bindcraft_like_loss
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -48,16 +48,23 @@ def infer_with_gradients(model: LightningModule, batch: Any, predict_args: Dict[
     with torch.set_grad_enabled(True):
         # Forward pass
         out = model(
-            {k:v.to(device) if isinstance(v, torch.Tensor) else v for k,v in batch.items()},
+            {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            },
             recycling_steps=predict_args.get("recycling_steps", 0),
             num_sampling_steps=predict_args.get("sampling_steps", 0),
             diffusion_samples=predict_args.get("diffusion_samples", 1),
-            run_confidence_sequentially=predict_args.get("run_confidence_sequentially", True),
+            max_parallel_samples=predict_args.get("diffusion_samples", 1),
+            run_confidence_sequentially=predict_args.get(
+                "run_confidence_sequentially", True
+            ),
+            guidance_type="rigid",
         )
-        total_plddt_loss = compute_aggregated_metric(out["plddt_logits"]).mean()
-        protein_plddt_loss = compute_aggregated_metric(out["plddt_logits"][:,:protein_index, :]).mean()
-        pocket_plddt_loss = compute_aggregated_metric(out["plddt_logits"][:, pocket_residues, :]).mean()
-        ligand_pldtt_loss = compute_aggregated_metric(out["plddt_logits"][:,protein_index:, :]).mean()
+        # total_plddt_loss = compute_aggregated_metric(out["plddt_logits"]).mean()
+        # protein_plddt_loss = compute_aggregated_metric(out["plddt_logits"][:,:protein_index, :]).mean()
+        # pocket_plddt_loss = compute_aggregated_metric(out["plddt_logits"][:, pocket_residues, :]).mean()
+        # ligand_pldtt_loss = compute_aggregated_metric(out["plddt_logits"][:,protein_index:, :]).mean()
         # print("Total plddt loss:", compute_aggregated_metric(total_plddt_loss).mean())
         # print("Protein plddt loss:", compute_aggregated_metric(protein_plddt_loss).mean())
         # print("Pocket plddt loss:", compute_aggregated_metric(pocket_plddt_loss).mean())
@@ -83,7 +90,7 @@ def infer_with_gradients(model: LightningModule, batch: Any, predict_args: Dict[
             "coords": out["sample_atom_coords"], # predicted coordinates
             # "mask": out["masks"],  # Mask for valid atoms
             "confidence_score": confidence_score,  # Confidence score with gradients
-            "pocket_plddt": pocket_plddt_loss,
+            # "pocket_plddt": pocket_plddt_loss,
             # "bindcraft_like_loss": bindcraft_like_loss(out, protein_index, pocket_residues),
         }
 

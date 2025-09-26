@@ -1,0 +1,18 @@
+defaults:
+- _self_
+- mode: flexscpack
+
+model: boltz1
+use_constraints: false
+no_msa: false
+cache: ${hydra:runtime.cwd}/.boltz
+
+protein_pdb_path: ???
+ligand_sdf_path: ???
+out_dir: ???
+pid: test
+ccd: ???
+
+hydra:
+  run:
+    dir: ${out_dir}

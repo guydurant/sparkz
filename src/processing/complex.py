@@ -18,7 +18,20 @@ logger = logging.getLogger(__name__)
 
 
 class Complex:
-    def __init__(self, pdb_path, ligand, ligand_code, replace_modified_res=True, cache_dir="/homes/durant"):
+    """
+    A class to handle protein-ligand complexes from PDB files for guidance and hallucination.
+    """
+    def __init__(self, pdb_path, ligand, ligand_code, replace_modified_res=True, cache_dir="/homes/user"):
+        """Initialize the Complex class.
+
+        Args:
+            pdb_path (str): Path to the PDB file.
+            ligand (str): Path to the ligand file.
+            ligand_code (str): CCD code for the ligand.
+            replace_modified_res (bool, optional): Whether to replace modified residues with canonical amino acid. Defaults to True.
+            cache_dir (str, optional): Directory for caching. Defaults to "/homes/user".
+        """
+        
         self._load_complex(
             pdb_path,
             ligand_path=ligand,
@@ -29,6 +42,14 @@ class Complex:
         
     
     def _load_complex(self, pdb_path, ligand_path, ligand_code, replace_modified_res=True):
+        """Calls various functions to load and process the complex.
+
+        Args:
+            pdb_path (str): Path to the PDB file.
+            ligand_path (str): Path to the ligand file.
+            ligand_code (str): CCD code for the ligand.
+            replace_modified_res (bool, optional): Whether to replace modified residues with canonical amino acid. Defaults to True.
+        """
         self.protein_molecules = {}
         self.heteratoms_molecules = {}
         self.replace_modified_res = replace_modified_res
@@ -41,6 +62,13 @@ class Complex:
         
 
     def read_pdbblock(self, pdb_path):
+        """
+        Reads the PDB block from the specified PDB file. 
+        Stores generated Molecule objects in protein_molecules and heteratoms_molecules dictionaries.
+
+        Args:
+            pdb_path (str): Path to the PDB file.
+        """
         with open(pdb_path, "r") as f:
             pdbblock = f.readlines()
         current_pdbblock = ""
@@ -95,6 +123,19 @@ class Complex:
     
     @classmethod
     def from_ligandmpnn_scpack(cls, pdb_path, ligand_file, ligand_code, replace_modified_res=True, cache_dir=".cache"):
+        """
+        Create a Complex instance from prediction from LigandMPNN-SCPacker.
+
+        Args:
+            pdb_path (str): Path to the PDB file.
+            ligand_file (str): Path to the ligand file.
+            ligand_code (str): CCD code for the ligand.
+            replace_modified_res (bool, optional): Whether to replace modified residues with canonical amino acid. Defaults to True.
+            cache_dir (str, optional): Directory for caching. Defaults to ".cache".
+
+        Returns:
+            Complex: A Complex instance.
+        """
         from processing.ligandmpnn_scpack import restype_3to1, get_ligandmpnn_sc_prior
         from pymol import cmd
         from ligandmpnn.data_utils import (
@@ -141,6 +182,10 @@ class Complex:
 
 
     def filter_heteratoms(self):
+        """Filter out heteroatoms that are not crystallization aids.
+        
+        Modifies the heteratoms_molecules dictionary in place.
+        """
         for key in self.heteratoms_molecules.copy():
             if key[1] in CRYSTALLISATION_AIDS:
                 del self.heteratoms_molecules[key]
@@ -149,6 +194,15 @@ class Complex:
                 del self.heteratoms_molecules[key]
 
     def check_residue_for_missing_atoms(self, res, molecule):
+        """Check a residue for missing atoms.
+        
+        Args:
+            res (tuple): A tuple representing the residue (mol_type, resname, res_id, chain_id).
+            molecule (Molecule): The Molecule object representing the residue.
+            
+        Returns:
+            list or str or None: A list of missing atom names, 'DNA' if the residue is DNA, 'heteroatom' if treated as heteroatom, or None if no atoms are missing.
+        """
         if res[1] in MODIFIED_RESIDUES:
             if not self.replace_modified_res:
                 logger.debug("Keeping modified residue %s", res, '. Note it is buggy')
@@ -177,6 +231,12 @@ class Complex:
 
 
     def clean_additional_atoms_in_residue(self, res, molecule):
+        """Remove any additional atoms in a residue that are not part of the standard set.
+
+        Args:
+            res (tuple): A tuple representing the residue (mol_type, resname, res_id, chain_id).
+            molecule (Molecule): The Molecule object representing the residue.
+        """
         key = res[1]
         if res[1] in MODIFIED_RESIDUES:
             if not self.replace_modified_res:
@@ -197,6 +257,11 @@ class Complex:
 
 
     def check_residues_for_missing_and_additional_atoms(self):
+        """Check all residues for missing and additional atoms.
+
+        Returns:
+            dict: A dictionary mapping residue keys to lists of problematic atoms.
+        """
         problematic_res = {}
         for res in list(self.protein_molecules.keys()):
             molecule = self.protein_molecules[res]
@@ -215,6 +280,13 @@ class Complex:
 
 
     def repair_missing_atoms(self, res_lines, missing_atoms):
+        """Repair missing atoms in a residue using PDBFixer.
+        Args:
+            res_lines (list): List of lines representing the residue in PDB format.
+            missing_atoms (list): List of missing atom names.
+        Returns:
+            list: List of lines representing the repaired atoms in PDB format.
+        """
         single_residue = PDBFixer(pdbfile=StringIO("".join(res_lines)))
         single_residue.findMissingResidues()
         single_residue.findMissingAtoms()
@@ -228,6 +300,11 @@ class Complex:
         ]
 
     def clean_protein(self):
+        """ Clean the protein by checking and repairing missing atoms.
+        
+        Modifies the protein_molecules dictionary in place.
+        
+        """
         self.problematic_res = self.check_residues_for_missing_and_additional_atoms()
         for res in self.problematic_res:
             missing_atoms = self.problematic_res[res]
@@ -287,11 +364,22 @@ class Complex:
                     del self.protein_molecules[res]
 
     def three_letter_to_one_letter(self, res):
+        """Convert a three-letter residue code to a one-letter code.
+        Args:
+            res (str): Three-letter residue code.
+        Returns:
+            str: One-letter residue code.
+        """
         if res in MODIFIED_RESIDUES:
             return const.prot_token_to_letter[MODIFIED_RESIDUES[res]]
         return const.prot_token_to_letter[res]
 
     def get_sequence(self):
+        """Get the amino acid sequence of the protein using Protein objects.
+
+        Returns:
+            dict: A dictionary mapping chain IDs to their amino acid sequences.
+        """
         sequence = {}
         for key in self.protein_molecules:
             if key[3] not in sequence:
@@ -300,6 +388,17 @@ class Complex:
         return sequence
 
     def read_ligand(self, ligand_path):
+        """Read a ligand file and return the corresponding RDKit molecule.
+
+        Args:
+            ligand_path (str): Path to the ligand file.
+
+        Raises:
+            ValueError: If the ligand file format is not supported.
+
+        Returns:
+            Chem.Mol: The RDKit molecule object.
+        """
         rdkit_funcs = {
             "sdf": Chem.MolFromMolFile,
             "mol": Chem.MolFromMolFile,
@@ -312,6 +411,12 @@ class Complex:
         return rdkit_funcs[ext](ligand_path)
     
     def alanine_mutate_inner_pocket(self, inner_threshold=5, outer_threshold=8):
+        """Mutate residues in the inner pocket (to be designed) to alanine.
+        
+        Args:
+            inner_threshold (float, optional): Distance threshold for inner pocket. Defaults to 5.
+            outer_threshold (float, optional): Distance threshold for outer pocket. Defaults to 8.
+        """
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
             redesign_pocket, outer_pocket = self.get_protein_pocket(
                 inner_threshold, outer_threshold
@@ -362,11 +467,20 @@ class Complex:
             else:
                 new_pdbblock = res.get_new_pdbblock(resname="ALA")
                 self.protein_molecules[key] = Molecule(new_pdbblock)
-
-            # print("Now mutated to", self.protein_molecules[key].resname, "with pdbblock", self.protein_molecules[key].pdbblock)
-
     
     def alter_sequence(self, new_sequence, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True,  guide_ligand=True, guide_sc=False):
+        """Alter the sequence of the protein in the redesign pocket to a new sequence.
+
+        Args:
+            new_sequence (list): The new amino acid sequence to introduce.
+            inner_threshold (float, optional): Distance threshold for inner pocket. Defaults to 5.
+            outer_threshold (float, optional): Distance threshold for outer pocket. Defaults to 8.
+            sequence_buffer (int, optional): Buffer size for expanding the residue list. Defaults to 10.
+            fix_hetatms (bool, optional): Whether to fix heteroatoms. Defaults to True.
+            guide_ligand (bool, optional): Whether to guide the ligand. Defaults to True.
+            guide_sc (bool, optional): Whether to guide side chains. Defaults to False.
+
+        """
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
             redesign_pocket, outer_pocket = self.get_protein_pocket(
                 inner_threshold, outer_threshold
@@ -426,6 +540,19 @@ class Complex:
     def process_for_guidance(
         self, inner_threshold=5, outer_threshold=8, sequence_buffer=10, fix_hetatms=True, guide_ligand=True, guide_sc=False
     ):
+        """Process the protein structure for guidance for ScrewzFix.
+
+        Args:
+            inner_threshold (int, optional): Threshold for inner pocket. Defaults to 5.
+            outer_threshold (int, optional): Threshold for outer pocket. Defaults to 8.
+            sequence_buffer (int, optional): Buffer size for sequence alignment. Defaults to 10.
+            fix_hetatms (bool, optional): Whether to fix heteroatoms. Defaults to True.
+            guide_ligand (bool, optional): Whether to guide ligand. Defaults to True.
+            guide_sc (bool, optional): Whether to guide side chains. Defaults to False.
+
+        Returns:
+            dict: A dictionary containing the processed protein structure.
+        """
         # if self.redesign_pocket and self.outer_pocket do not exist, use the below
         if not hasattr(self, "redesign_pocket") or not hasattr(self, "outer_pocket"):
             redesign_pocket, outer_pocket = self.get_protein_pocket(
@@ -482,14 +609,6 @@ class Complex:
                 hetatm_pocket_coords = np.concatenate(hetatm_pocket_coords, axis=0)
             else:
                 hetatm_pocket_coords = np.array([])
-            # hetatm_pocket_coords = np.array(
-            #     [
-            #         [atom.x, atom.y, atom.z]
-            #         for key, molecule in self.heteratoms_molecules.items()
-            #         for atom in molecule.atoms.values()
-            #         if key in hetatm_pocket
-            #     ]
-            # )
         else:
             hetatm_pocket_coords = np.array(
                 [
@@ -507,7 +626,6 @@ class Complex:
             pocket_coords = np.concatenate(
                 [protein_pocket_coords, hetatm_pocket_coords]
             )
-        # pocket_coords_centred = pocket_coords - np.mean(pocket_coords, axis=0)
         pocket_constraint_residue_indices = self.get_pocket_constraint_residue_indices(
             redesign_pocket, new_chain
         )
@@ -542,14 +660,12 @@ class Complex:
         constrain_atom_indices_with_ligand = constrain_atom_indices_with_backbone + [
             len(pocket_coords) + j for j in range(self.ligand.GetNumHeavyAtoms())
         ]
-        # TODO convert coords to 999.999 if in redesigned pocket
         pocket_coords_altered = np.array(
             [
                 atom if i in constrain_atom_indices_with_backbone else [999.999, 999.999, 999.999]
                 for i, atom in enumerate(pocket_coords)
             ]
         )
-        # get number of rows with 999.999
         lig_atom_mapping, lig_smiles = self.create_atom_mapping(self.ligand)
         
         lig_mol_copy = Chem.Mol(self.ligand)
@@ -577,22 +693,26 @@ class Complex:
             "pocket_constraint_residue_indices": pocket_constraint_residue_indices,
             "whole_pocket_atom_indices": constrain_atom_indices,
             "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_ligand if guide_ligand else constrain_atom_indices_with_backbone,
-            # "whole_pocket_and_ligand_atom_indices": constrain_atom_indices_with_backbone,
             "pdbblock_ref": whole_pdbblock,
             "other_hetatms": hetatm_smiles_list,
             "modified_residues": pocket_modified_residues if not self.replace_modified_res else {},
             "sidechain_atom_mask": self.get_sidechain_atom_indices(expanded_residues),
             "docking_sphere_centre": np.mean(ligand_coords_centred, axis=0),
-            # "docking_sphere_centre": pocket_coords_centred[0] + [25.0, 25.0, 25.0],
             "ligand_atom_indices": [
                 i + len(pocket_coords_altered) for i in range(self.ligand.GetNumHeavyAtoms())
             ],
         }
     
     def get_sidechain_atom_indices(self, expanded_residues):
-        """Return indices of side chain atoms (excluding backbone atoms CA, C, N, O)."""
+        """
+        Get indices of side chain atoms (excluding backbone atoms CA, C, N, O) for sidechain clash guidance.
+        
+        Args:
+            expanded_residues (list): List of residue keys in the expanded pocket.
+        Returns:
+            list: List of indices of side chain atoms.
+        """
         backbone_atoms = {"CA", "C", "N", "O"}
-        # backbone_atoms = {}
         indices = []
         idx = 0
         for res in self.protein_molecules:
@@ -604,7 +724,20 @@ class Complex:
         return indices
 
     def create_atom_mapping(self, mol, ccd=None):
-        """Generate full atom mapping between ref and query using O3A."""
+        """Generate full atom mapping between reference and query molecules.
+
+        Args:
+            mol (rdkit.Chem.Mol): The query molecule.
+            ccd (str, optional): The name of the CCD file. Defaults to None.
+
+        Raises:
+            ValueError: If the query molecule has no conformer.
+            ValueError: If the atom mapping is incomplete.
+
+        Returns:
+            dict: A dictionary mapping atom indices from the query to the reference.
+            str: The SMILES representation of the molecule.
+        """
         if ccd is not None:
             try:
                 mols = self.ccd_pkl
@@ -623,14 +756,11 @@ class Complex:
             query_mol = Chem.RemoveAllHs(mol)
         ref_mol = Chem.MolFromSmiles(Chem.MolToSmiles(query_mol))
         ref_mol = Chem.AddHs(ref_mol)
-        # Ensure both have 3D conformers
         
         AllChem.EmbedMolecule(ref_mol, randomSeed=42)
         ref_mol = Chem.RemoveAllHs(ref_mol)
         if query_mol.GetNumConformers() == 0:
             raise ValueError("Query molecule has no conformer")
-        # print("Query smiles:", Chem.MolToSmiles(query_mol))
-        # print("Reference smiles:", Chem.MolToSmiles(ref_mol))
         _, _, atom_mapping = Chem.rdMolAlign.GetBestAlignmentTransform(
             ref_mol, query_mol
         )
@@ -639,9 +769,25 @@ class Complex:
         return {i[0]: i[1] for i in atom_mapping}, Chem.MolToSmiles(mol)
 
     def centre_coords(self, coords, mask):
+        """Centre coordinates based on the mean of the masked indices.
+        Args:
+            coords (np.ndarray): Array of coordinates.
+            mask (list): List of indices to use for centering.
+        Returns:
+            np.ndarray: Centered coordinates.
+        """
         return coords - np.mean(coords[mask], axis=0)
 
     def drop_missing_residues(self, pocket_coords, whole_pocket_atom_indices):
+        """Drop missing residues from the pocket coordinates.
+
+        Args:
+            pocket_coords (np.ndarray): Array of pocket coordinates.
+            whole_pocket_atom_indices (list): List of all pocket atom indices.
+
+        Returns:
+            np.ndarray: Array of pocket coordinates with missing residues dropped.
+        """
         missing_residues = []
         # get where pocket coords are 999.999
         for i in whole_pocket_atom_indices:
@@ -652,6 +798,18 @@ class Complex:
     def get_pocket_redesign_atom_indices(
         self, redesign_pocket, expanded_residues, new_chains, guide_backbone=True, guide_sc=False
     ):
+        """Get indices of atoms in the redesign pocket.
+
+        Args:
+            redesign_pocket (list): List of residue keys in the redesign pocket.
+            expanded_residues (list): List of residue keys in the expanded pocket.
+            new_chains (list): List of new chain indices.
+            guide_backbone (bool, optional): Whether to include backbone atoms. Defaults to True.
+            guide_sc (bool, optional): Whether to include side chain atoms. Defaults to False.
+
+        Returns:
+            list: List of atom indices in the redesign pocket.
+        """
         residue_keys_atoms = []
         backbone_atoms = {"CA", "C", "N", "O"}
             
@@ -662,7 +820,6 @@ class Complex:
                     for atom in molecule.atoms.values():
                         if not (guide_backbone and atom.atom_name in backbone_atoms):
                             if not guide_sc:        
-                                # print(f"Adding atom {atom.atom_name} from residue {key} to redesign pocket")
                                 residue_keys_atoms.append(count)
                         count += 1
                 else:
@@ -670,6 +827,15 @@ class Complex:
         return residue_keys_atoms
 
     def get_pocket_constraint_residue_indices(self, redesign_pocket, new_chains):
+        """Get indices of residues in the redesign pocket that are part of the new chains.
+
+        Args:
+            redesign_pocket (list): List of residue keys in the redesign pocket.
+            new_chains (list): List of new chain indices.
+
+        Returns:
+            list: List of indices of residues in the redesign pocket that are part of the new chains.
+        """
         pocket_constraint_residue_indices = []
         new_chains_combined = [index for chain in new_chains for index in chain]
         for index in new_chains_combined:
@@ -680,6 +846,15 @@ class Complex:
         return pocket_constraint_residue_indices
 
     def get_protein_pocket(self, inner_threshold, outer_threshold):
+        """Get the protein pocket based on distance thresholds.
+
+        Args:
+            inner_threshold (float): Inner distance threshold.
+            outer_threshold (float): Outer distance threshold.
+
+        Returns:
+            tuple: A tuple containing two lists - the inner and outer pocket residue keys.
+        """
         protein_coords = np.array(
             [
                 [atom.x, atom.y, atom.z]
@@ -710,6 +885,13 @@ class Complex:
         return pocket_keys, larger_pocket_keys
 
     def get_hetatm_pocket(self, outer_threshold):
+        """Get the heteroatoms in the pocket based on distance threshold.
+        
+        Args:
+            outer_threshold (float): Outer distance threshold.
+        Returns:
+            list: List of heteroatom residue keys in the pocket.
+        """
         if self.heteratoms_molecules == {}:
             return []
         hetatm_coords = np.concatenate(
@@ -735,6 +917,15 @@ class Complex:
         return pocket_keys
 
     def expand_residue_list(self, pocket_residues, buffer):
+        """Expand the list of pocket residues by a buffer.
+
+        Args:
+            pocket_residues (list): List of residue keys in the pocket.
+            buffer (int): Number of residues to include in the expansion.
+
+        Returns:
+            list: List of expanded residue keys.
+        """
         residue_indices = sorted(
             [
                 i
@@ -757,7 +948,14 @@ class Complex:
         return expanded_residues
 
     def get_new_sequence(self, residues):
-        # Checks for breaks in the residue list
+        """Get the new sequence of residues after redesign.
+
+        Args:
+            residues (list): List of residue keys to include in the new sequence.
+
+        Returns:
+            dict: Dictionary mapping chain letters to their new sequences.
+        """
         residue_indices = [
             (res[3], res[2], i)
             for i, res in enumerate(self.protein_molecules.keys())
@@ -788,6 +986,15 @@ class Complex:
         return new_sequence, new_chains
 
     def get_protein_pdbblock(self, new_chains, pocket_residues):
+        """Get the protein PDB block for the redesigned pocket.
+
+        Args:
+            new_chains (list): List of new chain indices.
+            pocket_residues (list): List of residue keys in the pocket.
+
+        Returns:
+            str: PDB block for the redesigned pocket.
+        """
         new_pdbblock = ""
         chain_letters = []
         for indices in new_chains:
@@ -821,6 +1028,14 @@ class Complex:
         return new_pdbblock, chain_letters
 
     def get_hetatom_pdbblock(self, used_chain_letters, hetatom_residues):
+        """Get the heteroatom PDB block for the redesigned pocket.
+        
+        Args:
+            used_chain_letters (list): List of used chain letters.
+            hetatom_residues (list): List of heteroatom residue keys in the pocket.
+        Returns:
+            str: PDB block for the heteroatoms in the redesigned pocket.
+        """
         new_pdbblock = ""
         chain_num = 0
         if len(hetatom_residues) == 0:
@@ -839,6 +1054,14 @@ class Complex:
         return new_pdbblock
 
     def get_modified_residues(self, new_chains):
+        """Get the modified residues in the redesigned pocket.
+
+        Args:
+            new_chains (list): List of new chain indices.
+
+        Returns:
+            dict: Dictionary mapping chain letters to their modified residue information.
+        """
         modified_residues_pocket = {}
         for indices in new_chains:
             new_chain = chr(65 + new_chains.index(indices))
@@ -851,27 +1074,4 @@ class Complex:
                     print(
                         f"Found modified residue {res[1]} at position {j} in chain {new_chain}"
                     )
-                    print("Num atoms", len(self.protein_molecules[res].atoms))
         return modified_residues_pocket
-
-
-if __name__ == "__main__":
-    pocketbusters_ids = open(
-        "/vols/opig/projects/guy-affinity/POCKET_DESIGN/experiments/posebusters_ids.txt",
-        "r",
-    ).readlines()
-    pocketbusters_ids = [code.strip() for code in pocketbusters_ids]
-    for code in pocketbusters_ids:
-        code = "7CTM_BDP"
-        pdb_path = f"/vols/opig/users/durant/DOCKING/posebusters_benchmark_set/{code}/{code}_protein.pdb"
-        ligand_path = f"/vols/opig/users/durant/DOCKING/posebusters_benchmark_set/{code}/{code}_ligand.sdf"
-        complex = Complex(pdb_path, ligand_path, code.split("_")[1])
-        processed_data = complex.process_for_guidance(sequence_buffer=10)
-        for key in processed_data:
-            if key not in ["pdbblock_ref", "whole_pocket_atom_indices"]:
-                print(key, processed_data[key])
-            else:
-                pass
-        # with open(f"{code}_processed.pdb", "w") as f:
-        #     f.write(processed_data["pdbblock_ref"])
-        break

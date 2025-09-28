@@ -72,8 +72,13 @@ def get_atom(pdbblock):
 
 class Molecule:
     """Amino acid, ligand or nucleotide molecule."""
-
     def __init__(self, pdbblock, remove_hs=True):
+        """Initialize a Molecule object.
+
+        Args:
+            pdbblock (str): PDB block string.
+            remove_hs (bool, optional): Whether to remove hydrogen atoms. Defaults to True.
+        """
         self.pdbblock = "\n".join([line for line in pdbblock.split("\n") if line[76:78].strip() != "H"])
         unorderd_atoms = {
             i: get_atom(line)
@@ -93,15 +98,11 @@ class Molecule:
             self.atoms = unorderd_atoms
         for i in self.atoms:
             self.atoms[i].atom_id = i + 1
-        # self.resname = self.get_resname()
         self.resid = self.get_resid()
         self.chain_id = self.get_chain()
         self.coords = self.get_coords()
         if remove_hs:
             self.remove_hs()
-
-        # self.self_consistency_pdbblock_check()
-        # assert self.pdbblock == self.get_new_pdbblock(), f"Inconsistent PDB format detected {self.chain_id}{self.resid}{self.resname} {"\n"+self.get_new_pdbblock()} and {"\n"+self.pdbblock}"
 
     def self_consistency_pdbblock_check(self):
         """Check if the pdbblock is consistent with the atoms."""
@@ -165,35 +166,3 @@ class Molecule:
             i: atom for i, atom in self.atoms.items() if atom.atom_name != atom_name
         }
         self.coords = self.get_coords()
-        
-    # def repair_missing_atoms(self, res_lines, missing_atoms):
-    #     single_residue = PDBFixer(pdbfile=StringIO("".join(res_lines)))
-    #     single_residue.findMissingResidues()
-    #     single_residue.findMissingAtoms()
-    #     single_residue.addMissingAtoms()
-    #     fake_file = StringIO()
-    #     PDBFile.writeFile(single_residue.topology, single_residue.positions, fake_file)
-    #     return [
-    #         i
-    #         for i in fake_file.getvalue().split("\n")
-    #         if i[12:16].strip() in missing_atoms
-    #     ]
-
-
-if __name__ == "__main__":
-    test_residue = """ATOM    307  CA  ILE A  23      34.336 -14.207  70.107  1.00 12.14      A    C  
-ATOM    308  C   ILE A  23      34.310 -15.191  71.277  1.00 12.26      A    C  
-ATOM    309  O   ILE A  23      33.372 -15.977  71.417  1.00 13.02      A    O  
-ATOM    310  CB  ILE A  23      33.265 -13.113  70.312  1.00 12.56      A    C  
-ATOM    311  CG1 ILE A  23      33.177 -12.231  69.071  1.00 12.86      A    C  
-ATOM    312  CG2 ILE A  23      33.544 -12.302  71.565  1.00 13.49      A    C  
-ATOM    313  CD1 ILE A  23      32.058 -11.249  69.151  1.00 14.46      A    C  """
-
-    token = Molecule(test_residue.split("\n"))
-    print(token.resname)
-    print(token.chain_id)
-    print(token.coords)
-    new_pdbblock = token.get_new_pdbblock()
-    print(new_pdbblock)
-    print(test_residue)
-    assert new_pdbblock == test_residue

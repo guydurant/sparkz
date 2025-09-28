@@ -44,6 +44,14 @@ restype_3to1 = {
 
 
 def get_weights(cache):
+    """Download and cache the model weights.
+
+    Args:
+        cache (str): Directory to cache the weights.
+
+    Returns:
+        str: Path to the cached weights file.
+    """
     url = "https://files.ipd.uw.edu/pub/ligandmpnn/ligandmpnn_sc_v_32_002_16.pt"
     os.makedirs(cache, exist_ok=True)
     dest_path = os.path.join(cache, "ligandmpnn_sc_v_32_002_16.pt")
@@ -52,6 +60,14 @@ def get_weights(cache):
     return dest_path
 
 def get_scmodel(cache):
+    """Load LigandSCPacker model.
+
+    Args:
+        cache (str): Directory to cache the model.
+
+    Returns:
+        tuple: A tuple containing the model, its parameters, and the device.
+    """
     get_weights(cache)
     sc_params = {
         "sc_num_denoising_steps": 3,
@@ -92,6 +108,16 @@ def get_scmodel(cache):
     return model_sc, sc_params, device
     
 def get_protein_dict(pdb_path, device, fixed_residues=[]):
+    """Generates protein_dict for LigandSCPacker from PDB file.
+    
+    Args:
+        pdb_path (str): Path to the input PDB file.
+        device (torch.device): The device to use for tensors.
+        fixed_residues (list): List of fixed residue identifiers (chain + resnum + insertion code).
+
+    Returns:
+        tuple: A tuple containing the protein dictionary, other atoms, and insertion codes.
+    """
     parse_all_atoms_flag = True
     parse_these_chains_only_list = []
     protein_dict, backbone, other_atoms, icodes, _ = parse_PDB(
@@ -101,7 +127,6 @@ def get_protein_dict(pdb_path, device, fixed_residues=[]):
         parse_all_atoms=parse_all_atoms_flag,
         parse_atoms_with_zero_occupancy=1,
     )
-    # make chain_letter + residue_idx + insertion_code mapping to integers
     R_idx_list = list(protein_dict["R_idx"].cpu().numpy())  # residue indices
     chain_letters_list = list(protein_dict["chain_letters"])  # chain letters
     encoded_residues = []
@@ -131,13 +156,19 @@ def get_protein_dict(pdb_path, device, fixed_residues=[]):
 def get_ligandmpnn_sc_prior(
     input_file, fixed_residues, cache=".cache", outfile="test_packed.pdb"
 ):
+    """Run LigandSCPacker to pack side-chains in the protein pocket.
+
+    Args:
+        input_file (str): Path to the input PDB file.
+        fixed_residues (list): List of fixed residue identifiers (chain + resnum + insertion code).
+        cache (str, optional): Directory to cache the model. Defaults to ".cache".
+        outfile (str, optional): Path to the output PDB file. Defaults to "test_packed.pdb".
+    """
     model_sc, sc_params, device = get_scmodel(cache)
     protein_dict, other_atoms, icodes = get_protein_dict(input_file, device, fixed_residues=fixed_residues)
     length = len(protein_dict["R_idx"])
     original_S = protein_dict["S"].to(device)
     protein_dict["S"] = original_S.view(1, length)
-    # for key in modified_residues.keys():
-    #     protein_dict["S"][0, key] = modified_residues[key]
     S_list = [protein_dict["S"].long().to(device)]
     protein_dict["S"] = protein_dict["S"].long().to(device)
     feature_dict_ = featurize(

@@ -1,19 +1,11 @@
-import pandas as pd
 import torch
 from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download_boltz1, download_boltz2
 from pathlib import Path
 from dataclasses import asdict
-from ligandmpnn import sc_utils
 import os
-from boltz.model.models.boltz1 import Boltz1
 from boltz.data.write.writer import BoltzWriter
-from screwfix.screwz import Screwz1
-from tqdm import tqdm
-from boltz.main import process_inputs  # , BoltzProcessedInput, download
-from boltz.data.types import Manifest
-from boltz.data.module.inference import BoltzInferenceDataModule
+from screwzfix.screwzfix import ScrewzFix
 from processing.complex import Complex
-from utils.writer import write_complex
 from utils.batch_generate import make_batch_from_sequence
 import time
 import hydra
@@ -103,7 +95,6 @@ def infer(
     )
     side_chain_atom_mask[:, side_chain_atom_mask_indices] = 1
     batch["sidechain_atom_mask"] = side_chain_atom_mask
-    # batch["docking_sphere_centre"] = docking_sphere_centre
     batch["ligand_atom_mask"] = torch.zeros(
         batch["ref_pos"].shape[:2], dtype=torch.bool, device=batch["ref_pos"].device
     )
@@ -167,6 +158,11 @@ def infer(
 
 @hydra.main(config_path=os.path.join(os.path.dirname(__file__), "../../config/screwfix"), config_name="config")
 def main(cfg: DictConfig):
+    """Main entry point for the ScrewzFix application.
+
+    Args:
+        cfg (DictConfig): Configuration object containing all settings.
+    """
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -184,7 +180,7 @@ def main(cfg: DictConfig):
     assert Path.exists(
         cache_dir / "boltz1_conf.ckpt"
     ), f"Model checkpoint not found in {cache_dir}"
-    _torch_model = Screwz1.load_from_checkpoint(
+    _torch_model = ScrewzFix.load_from_checkpoint(
         Path(f"{cache_dir}/boltz1_conf.ckpt"),
         strict=True,
         map_location="cpu",
@@ -201,7 +197,6 @@ def main(cfg: DictConfig):
     _torch_model.eval()
     print(f"Predicting for {cfg.pid}")
     starttime = time.time()
-    # complex_obj = Complex(protein, ligand, pid.split("_")[1])
     if not cfg.mode.use_ligandmpnn_scpack:
         complex_obj = Complex(cfg.protein_pdb_path, cfg.ligand_sdf_path, cfg.ccd, cache_dir=cache_dir)
         processed_pdb = complex_obj.process_for_guidance(sequence_buffer=10, guide_ligand= not cfg.mode.ligand_dock, guide_sc=cfg.mode.side_chain_flex)
@@ -259,13 +254,6 @@ def main(cfg: DictConfig):
         0, 
         0,
     )
-    # write_complex(
-    #     predictions,
-    #     Path(f"{out_dir}/{pid}/processed/structures"),
-    #     Path(f"{out_dir}/{pid}/predictions"),
-    #     batch,
-    #     output_format="pdb",
-    # )
 
 
 if __name__ == "__main__":

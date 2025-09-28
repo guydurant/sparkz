@@ -2,10 +2,10 @@ from boltz.model.models.boltz1 import Boltz1
 import torch
 from typing import Any, Dict, Optional, Literal
 from torch import Tensor, nn
-from screwfix.modified_atom_diffusion import GuidedAtomDiffusion
+from screwzfix.modified_atom_diffusion import GuidedAtomDiffusion
 
 
-class Screwz1(Boltz1):
+class ScrewzFix(Boltz1):
     def __init__(  # noqa: PLR0915, C901, PLR0912
         self,
         atom_s: int,
@@ -102,6 +102,7 @@ class Screwz1(Boltz1):
             accumulate_token_repr=use_accumulate_token_repr,
             **diffusion_process_args,
         )
+
     def forward(
         self,
         feats: dict[str, Tensor],
@@ -154,7 +155,9 @@ class Screwz1(Boltz1):
 
                     # Compute pairwise stack
                     if not self.no_msa:
-                        z = z + self.msa_module(z, s_inputs, feats, use_kernels=self.use_kernels)
+                        z = z + self.msa_module(
+                            z, s_inputs, feats, use_kernels=self.use_kernels
+                        )
 
                     # Revert to uncompiled version for validation
                     if self.is_pairformer_compiled and not self.training:
@@ -164,7 +167,13 @@ class Screwz1(Boltz1):
                     else:
                         pairformer_module = self.pairformer_module
 
-                    s, z = pairformer_module(s, z, mask=mask, pair_mask=pair_mask, use_kernels=self.use_kernels)
+                    s, z = pairformer_module(
+                        s,
+                        z,
+                        mask=mask,
+                        pair_mask=pair_mask,
+                        use_kernels=self.use_kernels,
+                    )
 
             pdistogram = self.distogram_module(z)
             dict_out = {"pdistogram": pdistogram}
@@ -212,7 +221,7 @@ class Screwz1(Boltz1):
                     # s=s.detach(),
                     s=s,
                     # z=z.detach(),
-                    z = z,
+                    z=z,
                     s_diffusion=(
                         dict_out["diff_token_repr"]
                         if self.confidence_module.use_s_diffusion

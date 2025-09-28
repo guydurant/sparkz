@@ -7,21 +7,15 @@ from boltz.model.loss.diffusion import (
     weighted_rigid_align,
 )
 from boltz.model.modules.utils import (
-    LinearNoBias,
     compute_random_augmentation,
-    center_random_augmentation,
     default,
-    log,
 )
 import torch.nn.functional as F
-from boltz.model.modules.utils import random_rotations
 import torch
-from torch import Tensor, nn
-from typing import Any, Dict, Optional
-from einops import rearrange
 from potentials.sidechain_clash import get_potentials
 
 class GuidedAtomDiffusion(AtomDiffusion):
+    """Modifies Boltz 1's AtomDiffusion to include guidance potentials during sampling."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -88,12 +82,10 @@ class GuidedAtomDiffusion(AtomDiffusion):
                 guidance_rate = torch.tensor(max(0.0,
                     -1*(progress/0.95)**2 + 1.0
                 ))
-                # guidance_rate = 0.0
             elif guidance_type == "rigid":
                 guidance_rate = 1.0
             else:
                 raise ValueError(f"Unknown guidance type: {guidance_type}")
-            # print(f"Step {step_idx + 1}/{num_sampling_steps}, guidance rate: {guidance_rate}")
             random_R, random_tr = compute_random_augmentation(
                 multiplicity, device=atom_coords.device, dtype=atom_coords.dtype
             )
@@ -323,42 +315,37 @@ class GuidedAtomDiffusion(AtomDiffusion):
                 + self.step_scale * (sigma_t - t_hat) * denoised_over_sigma
             )
             
-            if atom_coords_true is not None:# and sigma_t != sigmas[-1]:
+            if atom_coords_true is not None:
                 if docking_sphere_centre_noisy is not None:
                     ligand_positions = []
-                    for b in range(atom_coords_next.shape[0]):  # batch size
-                        ligand_b = atom_coords_next[b][ligand_mask[b]]  # shape: [17, 3] per sample (if fixed)
+                    for b in range(atom_coords_next.shape[0]):
+                        ligand_b = atom_coords_next[b][ligand_mask[b]] 
                         ligand_positions.append(ligand_b)
 
-                    ligand_positions = torch.stack(ligand_positions, dim=0)  # shape: [3, 17, 3]
+                    ligand_positions = torch.stack(ligand_positions, dim=0) 
                     dist_squared = ((ligand_positions - docking_sphere_centre_noisy) ** 2).sum(dim=-1)
                     
                     radius = 25
                     if (dist_squared > radius**2).any():
-                        # print("WARNING: Ligand positions outside docking sphere, translating them back in.")
 
-                        dist = dist_squared.sqrt()  # [B, N_ligand]
-                        max_dist, max_idx = dist.max(dim=1)  # [B], [B]
+                        dist = dist_squared.sqrt() 
+                        max_dist, max_idx = dist.max(dim=1) 
 
                         for b in range(ligand_positions.shape[0]):
                             if max_dist[b] > radius:
-                                atom_pos = ligand_positions[b, max_idx[b]]  # [3]
-                                center = docking_sphere_centre_noisy[b]  # [3]
+                                atom_pos = ligand_positions[b, max_idx[b]]  
+                                center = docking_sphere_centre_noisy[b]  
                                 direction = atom_pos - center
                                 norm = torch.norm(direction)
                                 if norm > 1e-6:
                                     direction = direction / norm
                                     shift = direction * (max_dist[b] - radius)
-                                    ligand_positions[b] -= shift  # translate all atoms in batch b
-
-                        # Assign back to atom_coords_next using boolean mask
-                        flat_mask = ligand_mask.view(-1)                   # [B * N_atoms]
-                        flat_coords = atom_coords_next.view(-1, 3)         # [B * N_atoms, 3]
+                                    ligand_positions[b] -= shift  
+                        flat_mask = ligand_mask.view(-1)              
+                        flat_coords = atom_coords_next.view(-1, 3)        
                         flat_coords[flat_mask] = ligand_positions.reshape(-1, 3)
                         atom_coords_next = flat_coords.view_as(atom_coords_next)
 
-                # Finally overwrite the atom coordinates with the true coordinates for the rest
-                # print("origina÷l final atom coords", atom_coords_next[:, -1, :])
                 atom_coords_next = (atom_coords_next * (1 - atom_coords_true_mask)) + (
                     (
                         atom_coords_next
@@ -369,45 +356,5 @@ class GuidedAtomDiffusion(AtomDiffusion):
                     )
                     * atom_coords_true_mask
                 )
-                # # print("where it should be", atom_coords_true_noisy[:, -1, :])
-                # # print("overwritten final atom coords", atom_coords_next[:, -1, :])
-                # backbone_to_token = network_condition_kwargs["feats"]["atom_to_token"].clone()
-                # backbone_to_token[atom_coords_true_mask[0].T == 0] = 0
-                # guidance_vectors = atom_coords_true_noisy - atom_coords_next
-                # backbone_to_token = backbone_to_token.expand(guidance_vectors.shape[0], -1, -1)
-                # # print(backbone_to_token.shape, "backbone to token shape")
-                # # print(guidance_vectors.shape, "guidance vectors shape")
-                # guidance_vectors_expanded = guidance_vectors.unsqueeze(2)
-                # backbone_mask_expanded = backbone_to_token.unsqueeze(-1) 
-                # # sum_vectors = guidance_vectors.T @ backbone_to_token  # [3, N_atoms] x [N_atoms, N_tokens] -> [3, N_tokens]
-                # masked_guidance = guidance_vectors_expanded * backbone_mask_expanded
-                # # print(masked_guidance.shape, "masked guidance shape")
-                # sum_guidance = masked_guidance.sum(dim=1)  # [B, N_tokens, 3]
-                # token_weights = backbone_to_token.sum(dim=1).unsqueeze(-1).clamp(min=1e-8)
-                # average_masked_guidance = sum_guidance / token_weights
-                # # print(average_masked_guidance.shape, "average masked guidance shape")
-                
-                # sidechain_to_token = network_condition_kwargs["feats"]["atom_to_token"].clone()
-                # sidechain_to_token[network_condition_kwargs["feats"]["sidechain_atom_mask"] == 0] = 0
-                # sidechain_to_token = sidechain_to_token.expand(guidance_vectors.shape[0], -1, -1)
-                # # sidechain_to_token = sidechain_to_token.permute(0, 2, 1)
-                # # print(sidechain_to_token.shape, "sidechain to token shape")
-                # atom_guidance = sidechain_to_token.float() @ average_masked_guidance
-                
-                # # print("atom guidance shape", atom_guidance.shape)
-                
-                # atom_coords_next = (
-                #     atom_coords_next
-                #     + atom_guidance * guidance_rate
-                # ) * atom_coords_true_mask + atom_coords_next * (1 - atom_coords_true_mask)
-                # print("should be unchanged", atom_coords_next[:, -1, :])
-                # Count atoms per token
-                # counts = backbone_to_token.sum(dim=0).clamp(min=1).unsqueeze(1)  # [N_tokens, 1]
-
-                # # Mean guidance vectors per token (residue)
-                # mean_guidance_vectors = sum_vectors / counts
-                # print(mean_guidance_vectors.shape, "mean guidance vectors shape")
-            # print("where it should be", atom_coords_next[:, -1, :])
-            # print("where it ends up", atom_coords_next[:, -1:, :])
             atom_coords = atom_coords_next
         return dict(sample_atom_coords=atom_coords, diff_token_repr=token_repr)

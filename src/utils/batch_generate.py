@@ -8,6 +8,15 @@ from hallucination.constants import create_conversion_matrix
 
 
 def get_sequence_mask(sequence, positions):
+    """Get a mask for the specified positions in the sequence.
+
+    Args:
+        sequence (str): The input sequence.
+        positions (list): A list of positions to mask.
+
+    Returns:
+        torch.Tensor: A tensor mask of the same length as the sequence.
+    """
     mask = torch.zeros(len(sequence))
     mask[torch.tensor(positions, dtype=torch.long)] = 1
     return mask
@@ -41,44 +50,28 @@ def adjust_batch_from_pocket_sequence(sequence, sequence_mask, conversion_table,
     return batch
 
 
-# def make_batch_from_pocket_sequence(
-#     sequence,
-#     sequence_mask,
-#     original_sequence,
-#     ligand_info,
-#     iteration,
-#     datetime,
-#     interacting_residues,
-# ):
-#     # where sequence_mask is 1, replace the sequence with the new sequence
-#     # where sequence_mask is 0, keep the original sequence
-#     sequence_mask = (
-#         sequence_mask.cpu().numpy()
-#         if isinstance(sequence_mask, torch.Tensor)
-#         else sequence_mask
-#     )
-#     updated_sequence = "".join(
-#         [
-#             i if mask == 1 else j
-#             for i, j, mask in zip(sequence, original_sequence, sequence_mask)
-#         ]
-#     )
-#     print("Updated sequence:", updated_sequence)
-#     return make_batch_from_sequence(
-#         updated_sequence,
-#         ligand_info,
-#         iteration,
-#         datetime,
-#         positions=interacting_residues,
-#     )
-
-
 def next_letter(letter_list, nums=0):
+    """Get the next letter in the alphabet after the last letter in the list, offset by nums.
+    Args:
+        letter_list (list): List of letters.
+        nums (int, optional): Offset from the next letter. Defaults to 0.
+    
+    Returns:
+        str: The next letter in the alphabet.
+    """
     return chr(ord(letter_list[-1]) + 1 + nums)
 
 
 def get_chain_for_position(pos, sequences):
-    """Determine the chain and relative position given a global position and sequence lengths."""
+    """Determine the chain and relative position given a global position and sequence lengths.
+    
+    Args:
+        pos (int): The global position.
+        sequences (dict): Dictionary of chain IDs to sequences.
+
+    Returns:
+        list: A list containing the chain ID and relative position.
+    """
     start = 0
     for chain, seq in sequences.items():
         end = start + len(seq) - 1
@@ -104,6 +97,24 @@ def make_batch_from_sequence(
     use_constraints=False,
     dock=False,
 ):
+    """Create a batch from the given sequences and ligand information.
+    
+    Args:
+        sequences (dict): Dictionary of chain IDs to sequences.
+        ligand_smiles (str): SMILES string of the ligand.
+        other_hetatms (list): List of other heteroatoms (ligands) as SMILES strings.
+        modified_residues (dict): Dictionary of chain IDs to tuples of (position, ccd).
+        out_dir (str, optional): Output directory. Defaults to None.
+        cache_dir (str, optional): Cache directory. Defaults to None.
+        msa_dir (str, optional): MSA directory. Defaults to None.
+        positions (list, optional): List of positions for constraints. Defaults to None.
+        no_msa (bool, optional): Whether to use MSA. Defaults to False.
+        use_constraints (bool, optional): Whether to use constraints. Defaults to False.
+        dock (bool, optional): Whether to include a docking sphere. Defaults to False.
+    
+    Returns:
+        dict: The generated batch.
+    """
     def get_modified_residue_yaml(chain, values):
         if not values:
             return ""

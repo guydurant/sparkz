@@ -7,14 +7,10 @@
 import torch
 from boltz.main import BoltzDiffusionParams, BoltzSteeringParams, download_boltz1, download_boltz2
 from pathlib import Path
-from screwfix.screwz import Screwz1
+from screwzfix.screwzfix import ScrewzFix
 from dataclasses import asdict
 from hallucination.optimise import optimise_pocket_sequence_bindcraft
-from screwfix.main import infer
-from utils.writer import write_complex
-import json
-import click
-import time
+from screwzfix.main import infer
 import os
 from processing.complex import Complex
 from utils.batch_generate import make_batch_from_sequence
@@ -32,6 +28,11 @@ predict_args = {
 
 @hydra.main(config_path=os.path.join(os.path.dirname(__file__), "../config/sparkz"), config_name="config")
 def main(cfg: DictConfig):
+    """Runs Sparkz for pocket sequence design.
+
+    Args:
+        cfg (DictConfig): Configuration dictionary.
+    """
     print('Loading model')
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -50,7 +51,7 @@ def main(cfg: DictConfig):
     assert Path.exists(
         cache_dir / "boltz1_conf.ckpt"
     ), f"Model checkpoint not found in {cache_dir}"
-    _torch_model = Screwz1.load_from_checkpoint(
+    _torch_model = ScrewzFix.load_from_checkpoint(
         Path(f"{cache_dir}/boltz1_conf.ckpt"),
         strict=True,
         map_location="cpu",
@@ -67,23 +68,9 @@ def main(cfg: DictConfig):
     torch.set_float32_matmul_precision('highest')
     _torch_model.eval()
     print('Model loaded')
-    # wandb.init(project='sparkz', name=f'{pid}_lr={lr}')
     complex_obj = Complex(cfg.protein_pdb_path, cfg.ligand_sdf_path, cfg.ccd)
     complex_obj.alanine_mutate_inner_pocket()
     processed_pdb = complex_obj.process_for_guidance(sequence_buffer=10)
-    #     batch = make_batch_from_sequence(
-    #     sequence,
-    #     ligand_info,
-    #     other_hetatms,
-    #     modified_residues,
-    #     out_dir=out_dir,
-    #     msa_dir=msa_dir,
-    #     positions=interacting_residues,
-    #     no_msa=no_msa,
-    #     use_constraints=use_constraints,
-    #     cache_dir=cache_dir,
-    #     dock= False,  # docking_sphere_centre is not None,
-    # )
     
     batch = make_batch_from_sequence(
         processed_pdb['sequence'],
@@ -102,7 +89,6 @@ def main(cfg: DictConfig):
     )
     side_chain_atom_mask[:, processed_pdb["sidechain_atom_mask"]] = 1
     batch["sidechain_atom_mask"] = side_chain_atom_mask
-    # batch["docking_sphere_centre"] = docking_sphere_centre
     batch["ligand_atom_mask"] = torch.zeros(
         batch["ref_pos"].shape[:2], dtype=torch.bool, device=batch["ref_pos"].device
     )
@@ -133,9 +119,6 @@ def main(cfg: DictConfig):
     designed_sequence = optimise_pocket_sequence_bindcraft(_torch_model, full_sequence, processed_pdb['pocket_constraint_residue_indices'], batch, num_iterations=cfg.num_iterations, lr=cfg.lr, predict_args={'recycling_steps': cfg.recycling_steps, 'sampling_steps': cfg.sampling_steps, 'diffusion_samples': cfg.num_samples})
     complex_obj = Complex(cfg.protein_pdb_path, cfg.ligand_sdf_path, cfg.ccd)
     final_processed_data = complex_obj.alter_sequence(designed_sequence)
-    if os.path.exists('final'):
-        print('Removing existing final directory')
-        os.system('rm -rf final')
     predictions, batch = infer(
         _torch_model,
         final_processed_data['sequence'],
@@ -157,28 +140,6 @@ def main(cfg: DictConfig):
         predict_args=predict_args,
         guidance_type=cfg.mode.guidance_type,
     )
-    # predictions, batch = infer(
-    #     _torch_model,
-    #     processed_pdb["sequence"],
-    #     processed_pdb["pocket_constraint_residue_indices"],
-    #     processed_pdb["pocket_coords"],
-    #     processed_pdb["whole_pocket_atom_indices"],
-    #     processed_pdb["ligand_atom_indices"],
-    #     processed_pdb["whole_pocket_and_ligand_atom_indices"],
-    #     processed_pdb["other_hetatms"],
-    #     processed_pdb["modified_residues"],
-    #     processed_pdb["sidechain_atom_mask"],
-    #     ligand_info=processed_pdb["smiles"],
-    #     out_dir=".",
-    #     cache_dir=cache_dir,
-    #     msa_dir=None,
-    #     no_msa=cfg.no_msa,
-    #     use_constraints=cfg.use_constraints,
-    #     docking_sphere_centre=processed_pdb["docking_sphere_centre"] if cfg.mode.ligand_dock else None,
-    #     guidance_type=cfg.mode.guidance_type,
-    # )
-    # write_complex(predictions, Path(f'{out_dir}/{pid}_final/processed/structures'), Path(f'{out_dir}/{pid}_final/predictions'), batch, output_format='cif')
-    print(predictions)
     boltz_writer = BoltzWriter(
         f"final/processed/structures",
         f"final/predictions",
@@ -197,7 +158,6 @@ def main(cfg: DictConfig):
     print('Sequence optimized')
     print('Initial sequence:', full_sequence)
     print('Designed sequence:', designed_sequence)
-    print('Predicted final sequence:', final_processed_data['sequence'])
-    # wandb.finish()
+
 if __name__ == '__main__':
     main()

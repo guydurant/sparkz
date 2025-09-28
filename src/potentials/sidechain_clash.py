@@ -19,7 +19,22 @@ from boltz.data import const
 # from potentials.pocket_docking import PocketDockingPotential
 
 class SideChainVDWOverlapPotential(FlatBottomPotential, DistancePotential):
+    """A potential for side-chain van der Waals overlap.
+    
+    Inherits from FlatBottomPotential and DistancePotential.
+    """
     def compute_args(self, feats, parameters):
+        """Compute the arguments for the side-chain VDW overlap potential.
+        
+        Follows the structure of VDWOverlapPotential but focuses on side-chain atoms.
+
+        Args:
+            feats (dict): The input features.
+            parameters (dict): The potential parameters.
+
+        Returns:
+            tuple: A tuple containing the indexed pair, potential parameters, and any additional information.
+        """
         # Valid side-chain atoms
         sidechain_mask = feats["sidechain_atom_mask"][0].bool()
         atom_pad_mask = feats["atom_pad_mask"][0].bool()
@@ -54,12 +69,19 @@ class SideChainVDWOverlapPotential(FlatBottomPotential, DistancePotential):
 
         # Map back to original atom indices
         indexed_pair = atom_indices[pair_index]
-        # print("SIDE CHAIN CLASH", indexed_pair.shape, lower_bounds.shape, k.shape)
         return indexed_pair, (k, lower_bounds, None), None
 
 
 
-def get_potentials(sidechain_clash=True, pocket_docking=False):
+def get_potentials(sidechain_clash=True):
+    """
+    Overwrites Boltz-1x function to add sidechain clash potential.
+    
+    Args:
+        sidechain_clash (bool): Whether to include the sidechain clash potential.
+    Returns:
+        list: A list of instantiated potential classes with their parameters.
+    """
     potentials = [
         SymmetricChainCOMPotential(
             parameters={
@@ -129,20 +151,6 @@ def get_potentials(sidechain_clash=True, pocket_docking=False):
                 'buffer': 0.26180
             }
         ),
-        # SideChainVDWOverlapPotential(
-        #     parameters={
-        #         'guidance_interval': 5,
-        #         'guidance_weight': PiecewiseStepFunction(
-        #             thresholds=[0.4],
-        #             values=[0.125, 0.0]
-        #         ),
-        #         'resampling_weight': PiecewiseStepFunction(
-        #             thresholds=[0.6],
-        #             values=[0.01, 0.0]
-        #         ),
-        #         'buffer': 0.37,
-        #     }
-        # )
     ]
     if sidechain_clash:
         potentials.append(
@@ -151,29 +159,8 @@ def get_potentials(sidechain_clash=True, pocket_docking=False):
                     'guidance_interval': 1,
                     'guidance_weight': 0.05,
                     'resampling_weight': 0.1,
-                # 'guidance_interval': 5,
-                # 'guidance_weight': PiecewiseStepFunction(
-                #     thresholds=[0.4],
-                #     values=[0.125, 0.0]
-                # ),
-                # 'resampling_weight': PiecewiseStepFunction(
-                #     thresholds=[0.6],
-                #     values=[0.01, 0.0]
-                # ),
                     'buffer': 0.37,
                 }
             )
         )
-    # if pocket_docking:
-    #     print("using pocket docking potential")
-    #     potentials.append(
-    #         DockingSpherePotential(
-    #             parameters={
-    #                 'guidance_interval': 1,
-    #                 'guidance_weight': 1,
-    #                 'resampling_weight': 1,
-    #                 'buffer': 25.0,
-    #             }
-    #         )
-    #     )
     return potentials

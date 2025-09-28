@@ -2,6 +2,9 @@ import torch
 
 
 def create_conversion_matrix():
+    """
+    Create a conversion matrix to map amino acid sequences to token indices of Boltz-1x.
+    """
     amino_acids = "ACDEFGHIKLMNPQRSTVWY"
     tokens = "--ARNDCQEGHILKMFPSTWYV----------_"
 

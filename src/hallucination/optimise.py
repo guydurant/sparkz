@@ -15,16 +15,20 @@ def optimise_pocket_sequence_bindcraft(
     model, alanine_sequence, sequence_mask_positions, batch, num_iterations=300, lr=0.01, datetime=None, predict_args=None
 ):
     """
-    Optimize the pocket protein sequence to improve binding affinity or other metrics.
-
+    Optimize the pocket protein sequence to maximize the confidence score using a staged approach similar to BindCraft.
+    
     Args:
-        model (LightningModule): The trained Boltz model.
-        batch (dict): The input batch containing the protein sequence and other information.
+        model (LightningModule): The trained Lightning module.
+        alanine_sequence (str): The sequence with alanine residues for pocket residues.
+        sequence_mask_positions (list): List of positions in the sequence that can be modified.
+        batch (dict): The input batch for inference.
         num_iterations (int): Number of optimization iterations.
         lr (float): Learning rate for the optimizer.
-
+        datetime (str): A string representing the current date and time for logging purposes.
+        predict_args (dict): Prediction arguments such as recycling_steps, sampling_steps, etc.
+    
     Returns:
-        torch.Tensor: The optimized protein sequence.
+        str: The optimized pocket sequence.
     """
     
     # Ensure the sequence is a tensor and requires gradients
@@ -40,25 +44,13 @@ def optimise_pocket_sequence_bindcraft(
         if isinstance(value, torch.Tensor) and value.is_floating_point():
             # make sure the tensor requires gradients
             og_batch[key] = value.clone().detach().requires_grad_(True)
-    # random_decoded = decode_sampled_one_hot(sequence)
-    # random_sequence = "".join([i if mask == 1 else j for i, j, mask in zip(random_decoded, initial_sequence, sequence_mask)])
-    # # print("Random sequence:", random_sequence)
-    # random_batch = make_batch_from_sequence(random_sequence, ligand_info, "random", datetime, interacting_residues)
-    # predictions = infer_with_gradients(model, random_batch.copy(), predict_args, len(sequence)-1, sequence_positions)
-    # print("Random sequence pLLDT:", predictions["plddt"].mean())
-
     # Define the optimizer
     optimizer = optim.Adam([sequence], lr=lr)
 
     # Define stage switch points
     stage_switch_points = {
         1: int(num_iterations / 2),  # Stage 1 ends at iteration 25
-        # 2: 95,  # Stage 2 ends at iteration 95
-        # 2: int((num_iterations / 20) * 19),
-        2: num_iterations,
-        # 3: 100,  # Stage 3 ends at iteration 100
-        # 3: num_iterations,
-        # 4: 101,  # Stage 4 ends at iteration 115
+        2: int((num_iterations / 20) * 18),
     }
 
     # Define temperature schedule
@@ -90,40 +82,13 @@ def optimise_pocket_sequence_bindcraft(
 
     # Optimization loop
     current_stage = 1
-    best_sequence = {
-        "sequence": None,
-        "confidence": 0.0,
-    }
     for iteration in tqdm(range(num_iterations), desc="Optimizing sequence"):
         batch = og_batch.copy()
         # Check if we need to switch stages
         if iteration >= stage_switch_points.get(current_stage, num_iterations):
             current_stage += 1
-            print(f"Switching to Stage {current_stage} at iteration {iteration}")
             if current_stage == 4:
                 raise ValueError("Stage 4 is not implemented yet.")
-                decoded_sequence = decode_sampled_one_hot(sequence)
-                best_sequence["sequence"] = "".join(
-                    [
-                        i if mask == 1 else j
-                        for i, j, mask in zip(
-                            decoded_sequence, alanine_sequence, sequence_mask
-                        )
-                    ]
-                )
-                batch = make_batch_from_pocket_sequence(
-                    best_sequence["sequence"],
-                    sequence_mask,
-                    initial_sequence,
-                    ligand_info,
-                    iteration,
-                    datetime,
-                    interacting_residues,
-                )
-                confidence = infer_with_gradients(
-                    model, batch, predict_args, len(sequence) - 1, sequence_positions
-                )["ligand_iptm"]
-                best_sequence["confidence"] = confidence.mean().item()
 
         temperature = get_temperature(iteration, current_stage)
         lambda_val = get_lambda(iteration, current_stage)
@@ -138,9 +103,6 @@ def optimise_pocket_sequence_bindcraft(
         elif current_stage == 2:
             sampled_sequence = torch.softmax(sequence / temperature, dim=-1)
         elif current_stage == 3:
-            # sampled_sequence = torch.softmax(sequence / temperature, dim=-1)
-            # # Straight-through estimator
-            # sampled_sequence = (sampled_sequence - sampled_sequence.detach()) + sampled_sequence.detach().round()
             softmax_out = torch.softmax(sequence / temperature, dim=-1)
 
             # Sample from softmax using argmax (hard selection)
@@ -161,9 +123,7 @@ def optimise_pocket_sequence_bindcraft(
         predictions = infer_with_gradients(
             model, batch, predict_args, len(sequence) - 1, sequence_mask_positions
         )
-        # confidence_score = predictions["confidence_score"]
         confidence_score = predictions["ligand_iptm"]
-        # confidence_score = predictions["pocket_plddt"]
 
         # Compute loss and backpropagate
         loss = (
@@ -174,46 +134,6 @@ def optimise_pocket_sequence_bindcraft(
             -1
         )  # ignore gradients for fixed positions
         grad_norm = sequence.grad.norm()
-        
-        # global_max = 0.0
-
-        # for group in optimizer.param_groups:
-        #     for param in group["params"]:
-        #         if param.grad is None:
-        #             continue
-        #         state = optimizer.state[param]
-        #         if "exp_avg" in state and "exp_avg_sq" in state:
-        #             m = state["exp_avg"]
-        #             v = state["exp_avg_sq"]
-        #             denom = (v.sqrt() + group["eps"])
-        #             effective_step = group["lr"] * (m / denom)
-        #             param_max = effective_step.abs().max().item()
-        #             global_max = max(global_max, param_max)
-
-        # print("Global max effective step size:", global_max)
-        # clip gradients
-        
-        # param_values = []
-
-        # for group in optimizer.param_groups:
-        #     for param in group["params"]:
-        #         if param.grad is None:
-        #             continue
-        #         state = optimizer.state[param]
-        #         if "exp_avg" in state and "exp_avg_sq" in state:
-        #             m = state["exp_avg"]
-        #             v = state["exp_avg_sq"]
-        #             denom = (v.sqrt() + group["eps"])
-        #             effective_step = group["lr"] * (m / denom)
-                    
-        #             # Collect all effective steps for each parameter
-        #             param_values.append(effective_step.abs().cpu().numpy())  # Add abs values to list for median
-
-        # # Flatten the list of effective steps for all parameters and compute the median
-        # param_values = torch.tensor(param_values)
-        # median_param_value = param_values.median().item()
-
-        # print("Median of all parameters:", median_param_value)
         torch.nn.utils.clip_grad_norm_(sequence, 2.0)
         optimizer.step()
 
@@ -225,15 +145,6 @@ def optimise_pocket_sequence_bindcraft(
             entropy = -torch.sum(
                 sampled_sequence * torch.log(sampled_sequence + 1e-8), dim=-1
             ).mean()
-            # wandb.log(
-            #     {
-            #         "Loss": loss.item(),
-            #         "Confidence": confidence_score.mean().item(),
-            #         "Entropy": entropy.item(),
-            #         "Grad Norm": grad_norm.item(),
-            #         "Temperature": temperature,
-            #     }
-            # )
             print(
                 f"Iteration {iteration}: Loss={loss.item()}, Confidence={confidence_score.mean()}, Entropy={entropy}, Grad Norm={grad_norm}, Temperature={temperature}"
             )
